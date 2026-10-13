@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "ba.gold.reviewed.v1",
+  "provenance": {
+    "kind": "synthetic",
+    "dataUseApproved": false,
+    "approvalReference": "REPLACE_WITH_REAL_APPROVAL_REFERENCE"
+  },
+  "figmaTarget": {
+    "fileKey": "REPLACE_WITH_TEST_FILE_KEY",
+    "nodeId": "1:2",
+    "nodeName": "REPLACE_WITH_ACTUAL_FRAME_NAME",
+    "designSpecReference": "REPLACE_WITH_APPROVED_DESIGN_SPEC_ID"
+  },
+  "cases": [
+    {
+      "id": "SAMPLE_ONLY_DO_NOT_RELEASE",
+      "title": "Phiếu dịch vụ (ví dụ tổng hợp)",
+      "domain": "customer-support",
+      "brief": "Nhân viên hỗ trợ có thể tạo phiếu dịch vụ. Thời gian hiển thị danh sách phiếu không quá 2 giây.",
+      "expectedFunctional": [["tạo phiếu dịch vụ", "tạo phiếu"]],
+      "expectedNfr": [["không quá 2 giây", "2 giây"]],
+      "annotation": {
+        "status": "draft",
+        "reviewerIds": [],
+        "adjudicatedBy": "",
+        "adjudicatedAt": "",
+        "reference": ""
+      }
+    }
+  ]
+}

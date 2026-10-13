@@ -1,0 +1,164 @@
+{
+  "projectName": "Cổng tiếp nhận và xử lý bảo hành",
+  "executiveSummary": "Xây dựng cổng đăng ký, xử lý và thống kê yêu cầu bảo hành máy lọc nước.",
+  "businessProblem": "Chưa được nêu rõ trong brief — cần xác nhận pain point và KPI.",
+  "businessGoals": [
+    "Tiếp nhận yêu cầu bảo hành",
+    "Quản lý quá trình xử lý bảo hành",
+    "Theo dõi số phiếu theo trạng thái"
+  ],
+  "stakeholders": [
+    {
+      "role": "Khách hàng",
+      "need": "Đăng ký bảo hành"
+    },
+    {
+      "role": "Nhân viên trạm",
+      "need": "Xử lý yêu cầu"
+    },
+    {
+      "role": "Quản trị viên",
+      "need": "Xem thống kê"
+    }
+  ],
+  "scopeIn": [
+    "Đăng ký bảo hành",
+    "Theo dõi và cập nhật trạng thái yêu cầu",
+    "Báo cáo số phiếu theo trạng thái",
+    "Phân quyền theo vai trò"
+  ],
+  "scopeOut": [],
+  "businessRules": [
+    {
+      "id": "BR-001",
+      "rule": "Phân quyền theo vai trò khách hàng, nhân viên trạm và quản trị viên.",
+      "sourceEvidence": "Hệ thống phải phân quyền theo vai trò khách hàng, nhân viên trạm và quản trị viên.",
+      "certainty": "confirmed"
+    }
+  ],
+  "functionalRequirements": [
+    {
+      "id": "FR-001",
+      "name": "Đăng ký bảo hành",
+      "description": "Khách hàng nhập số seri và số điện thoại để đăng ký bảo hành.",
+      "actor": "Khách hàng",
+      "priority": "Must",
+      "sourceEvidence": "Khách hàng có thể đăng ký bảo hành bằng số seri và số điện thoại.",
+      "certainty": "confirmed",
+      "relatedBusinessGoal": "Tiếp nhận yêu cầu bảo hành",
+      "preconditions": [],
+      "mainFlow": [
+        "Mở form đăng ký",
+        "Nhập số seri và số điện thoại",
+        "Gửi yêu cầu (cần xác nhận quy tắc kiểm tra và phản hồi)"
+      ],
+      "alternateFlows": [],
+      "acceptanceCriteria": [
+        "Cho phép nhập số seri và số điện thoại",
+        "Cần xác nhận kết quả xử lý khi gửi form"
+      ]
+    },
+    {
+      "id": "FR-002",
+      "name": "Xử lý yêu cầu",
+      "description": "Nhân viên trạm xem danh sách và cập nhật trạng thái.",
+      "actor": "Nhân viên trạm",
+      "priority": "Must",
+      "sourceEvidence": "Nhân viên trạm bảo hành xem danh sách yêu cầu, cập nhật trạng thái 'Tiếp nhận', 'Đang xử lý', 'Hoàn thành'.",
+      "certainty": "confirmed",
+      "relatedBusinessGoal": "Quản lý quá trình xử lý bảo hành",
+      "preconditions": [],
+      "mainFlow": [
+        "Mở danh sách yêu cầu",
+        "Chọn một yêu cầu",
+        "Cập nhật trạng thái"
+      ],
+      "alternateFlows": [],
+      "acceptanceCriteria": [
+        "Danh sách hiển thị yêu cầu",
+        "Hỗ trợ ba trạng thái đã nêu"
+      ]
+    },
+    {
+      "id": "FR-003",
+      "name": "Thống kê trạng thái",
+      "description": "Quản trị viên xem báo cáo số phiếu theo trạng thái.",
+      "actor": "Quản trị viên",
+      "priority": "Must",
+      "sourceEvidence": "Quản trị viên xem báo cáo số phiếu theo trạng thái.",
+      "certainty": "confirmed",
+      "relatedBusinessGoal": "Theo dõi số phiếu theo trạng thái",
+      "preconditions": [],
+      "mainFlow": [
+        "Mở trang báo cáo",
+        "Xem số phiếu theo từng trạng thái"
+      ],
+      "alternateFlows": [],
+      "acceptanceCriteria": [
+        "Báo cáo nhóm phiếu theo trạng thái"
+      ]
+    }
+  ],
+  "nonFunctionalRequirements": [],
+  "clarificationQuestions": [
+    {
+      "id": "Q-001",
+      "question": "Xác thực người dùng và kiểm tra phân quyền bằng cơ chế nào?",
+      "impact": "Ảnh hưởng bảo mật và luồng đăng nhập",
+      "priority": "High"
+    },
+    {
+      "id": "Q-002",
+      "question": "Số seri trùng lặp, không hợp lệ hoặc hết hạn bảo hành thì xử lý thế nào?",
+      "impact": "Ảnh hưởng business rules và validation",
+      "priority": "High"
+    },
+    {
+      "id": "Q-003",
+      "question": "Các trạng thái có được quay lui và ai được chuyển trạng thái?",
+      "impact": "Ảnh hưởng transition/permission",
+      "priority": "High"
+    },
+    {
+      "id": "Q-004",
+      "question": "Báo cáo cần bộ lọc thời gian, trạm và xuất file không?",
+      "impact": "Ảnh hưởng phạm vi báo cáo",
+      "priority": "Medium"
+    },
+    {
+      "question": "Vấn đề kinh doanh hiện tại và ảnh hưởng cụ thể là gì?",
+      "impact": "Chưa thể đánh giá sự phù hợp của mục tiêu và giải pháp.",
+      "priority": "Medium",
+      "origin": "GAP-001",
+      "relatedRequirementId": "",
+      "id": "Q-005"
+    }
+  ],
+  "assumptions": [
+    "Luồng gửi biểu mẫu, kiểm tra dữ liệu và thông báo kết quả chưa được khách hàng mô tả."
+  ],
+  "risks": [
+    "Chưa có quy tắc trạng thái, kiểm tra số seri và cơ chế xác thực."
+  ],
+  "quality": {
+    "policyVersion": "ba-quality-v1",
+    "status": "NEEDS_CLARIFICATION",
+    "counts": {
+      "high": 0,
+      "medium": 1
+    },
+    "findings": [
+      {
+        "id": "GAP-001",
+        "code": "NO_BUSINESS_PROBLEM",
+        "priority": "Medium",
+        "question": "Vấn đề kinh doanh hiện tại và ảnh hưởng cụ thể là gì?",
+        "impact": "Chưa thể đánh giá sự phù hợp của mục tiêu và giải pháp.",
+        "requirementId": "",
+        "status": "open",
+        "origin": "deterministic-check"
+      }
+    ],
+    "baselineEligible": false
+  }
+}

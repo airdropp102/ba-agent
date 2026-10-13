@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ba-studio.local/schemas/ba-canonical-v1.schema.json",
+  "title": "BA Studio Canonical Artifact v1",
+  "description": "Single versioned data contract for BRD, SRS, clarification questionnaire, and prototype. An evidence quote is not customer sign-off.",
+  "type": "object",
+  "required": ["schemaVersion", "project", "sources", "business", "requirements", "elicitation", "quality", "review", "prototype", "traceability"],
+  "properties": {
+    "schemaVersion": {"const": "ba.canonical.v1"},
+    "project": {
+      "type": "object", "required": ["name", "title", "version", "status"],
+      "properties": {"name": {"type": "string"}, "title": {"type": "string"}, "version": {"type": "integer", "minimum": 1}, "status": {"type": "string"}}
+    },
+    "sources": {"type": "array", "items": {"type": "object", "required": ["id", "type", "sha256"], "properties": {"id": {"type": "string", "pattern": "^SRC-[0-9]{3}$"}, "type": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}},
+    "business": {
+      "type": "object", "required": ["summary", "problem", "businessGoals", "stakeholders", "scopeIn", "scopeOut"],
+      "properties": {"summary": {"type": "string"}, "problem": {"type": "string"}, "businessGoals": {"type": "array", "items": {"type": "object", "required": ["id", "statement"], "properties": {"id": {"type": "string", "pattern": "^BG-[0-9]{3}$"}, "statement": {"type": "string"}}}}, "stakeholders": {"type": "array", "items": {"type": "object"}}, "scopeIn": {"type": "array", "items": {"type": "string"}}, "scopeOut": {"type": "array", "items": {"type": "string"}}}
+    },
+    "requirements": {
+      "type": "object", "required": ["businessRules", "functional", "nonFunctional"],
+      "properties": {
+        "businessRules": {"type": "array", "items": {"$ref": "#/$defs/businessRule"}},
+        "functional": {"type": "array", "items": {"$ref": "#/$defs/functional"}},
+        "nonFunctional": {"type": "array", "items": {"$ref": "#/$defs/nonFunctional"}}
+      }
+    },
+    "elicitation": {"type": "object", "required": ["questions", "assumptions", "risks", "amendments"], "properties": {"questions": {"type": "array", "items": {"$ref": "#/$defs/question"}}, "assumptions": {"type": "array", "items": {"type": "string"}}, "risks": {"type": "array", "items": {"type": "string"}}, "amendments": {"type": "array", "items": {"type": "object"}}}},
+    "quality": {"type": "object", "required": ["status", "findings", "counts", "baselineEligible"], "properties": {"status": {"enum": ["NEEDS_CLARIFICATION", "READY_FOR_BA_REVIEW"]}, "findings": {"type": "array", "items": {"$ref": "#/$defs/gap"}}, "counts": {"type": "object", "required": ["high", "medium"], "properties": {"high": {"type": "integer", "minimum": 0}, "medium": {"type": "integer", "minimum": 0}}}, "baselineEligible": {"type": "boolean"}}},
+    "review": {"type": "object", "required": ["baReviewed", "customerApproved", "baselineStatus"], "properties": {"baReviewed": {"type": "boolean"}, "customerApproved": {"type": "boolean"}, "baselineStatus": {"const": "NOT_BASELINED"}}},
+    "prototype": {"type": "object", "required": ["screens"], "properties": {"screens": {"type": "array", "items": {"type": "object", "required": ["id", "title", "requirementIds", "components"], "properties": {"id": {"type": "string", "pattern": "^SCR-[0-9]{3}$"}, "title": {"type": "string"}, "requirementIds": {"type": "array", "items": {"type": "string"}}, "components": {"type": "array", "items": {"type": "object"}}}}}}},
+    "traceability": {"type": "array", "items": {"type": "object", "required": ["requirementId", "businessGoalId", "screenIds", "evidenceStatus"], "properties": {"requirementId": {"type": "string"}, "businessGoalId": {"type": ["string", "null"]}, "screenIds": {"type": "array", "items": {"type": "string"}}, "evidenceStatus": {"enum": ["evidence-found-not-approved", "needs-source-confirmation"]}}}}
+  },
+  "$defs": {
+    "businessRule": {"type": "object", "required": ["id", "rule", "certainty"], "properties": {"id": {"type": "string", "pattern": "^BR-[0-9]{3}$"}, "rule": {"type": "string"}, "certainty": {"enum": ["confirmed", "assumption"]}}},
+    "functional": {"type": "object", "required": ["id", "name", "description", "actor", "priority", "certainty", "acceptanceCriteria", "sourceId", "evidenceStatus"], "properties": {"id": {"type": "string", "pattern": "^FR-[0-9]{3}$"}, "name": {"type": "string"}, "description": {"type": "string"}, "actor": {"type": "string"}, "priority": {"enum": ["Must", "Should", "Could"]}, "certainty": {"enum": ["confirmed", "assumption"]}, "acceptanceCriteria": {"type": "array", "items": {"type": "string"}}, "sourceId": {"type": ["string", "null"]}, "evidenceStatus": {"enum": ["evidence-found-not-approved", "needs-source-confirmation"]}}},
+    "nonFunctional": {"type": "object", "required": ["id", "category", "description", "measurableTarget", "sourceId", "evidenceStatus"], "properties": {"id": {"type": "string", "pattern": "^NFR-[0-9]{3}$"}, "category": {"type": "string"}, "description": {"type": "string"}, "measurableTarget": {"type": "string"}, "sourceId": {"type": ["string", "null"]}, "evidenceStatus": {"enum": ["evidence-found-not-approved", "needs-source-confirmation"]}}},
+    "question": {"type": "object", "required": ["id", "question", "impact", "priority"], "properties": {"id": {"type": "string", "pattern": "^Q-[0-9]{3}$"}, "question": {"type": "string"}, "impact": {"type": "string"}, "priority": {"enum": ["High", "Medium", "Low"]}}},
+    "gap": {"type": "object", "required": ["id", "code", "priority", "question", "impact", "status"], "properties": {"id": {"type": "string", "pattern": "^GAP-[0-9]{3}$"}, "code": {"type": "string"}, "priority": {"enum": ["High", "Medium", "Low"]}, "question": {"type": "string"}, "impact": {"type": "string"}, "status": {"const": "open"}}}
+  }
+}

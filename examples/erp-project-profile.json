@@ -1,0 +1,10 @@
+{
+  "title": "ERP procurement and inventory discovery",
+  "brief": "Khách hàng muốn chuẩn hóa quy trình mua hàng, nhập kho và phê duyệt giữa các bộ phận. Cần phỏng vấn để xác định As-Is, To-Be, quản lý chứng từ và tích hợp kế toán.",
+  "solutionProfile": {
+    "domain": "erp",
+    "strategy": "open-source",
+    "candidates": ["odoo-community", "erpnext"],
+    "processAreas": ["procure-to-pay", "inventory-to-fulfillment", "record-to-report", "master-data", "integration-security"]
+  }
+}

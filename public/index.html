@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BA Studio — From Brief to Blueprint</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-mark">B<span>●</span></span><div><strong>BA Studio</strong><small>AI REQUIREMENTS WORKSPACE</small></div></div>
+    <div class="sidebar-label">WORKSPACE</div>
+    <button class="side-link active" id="new-project-btn"><span>＋</span> Dự án mới</button>
+    <div class="sidebar-label recent">DỰ ÁN GẦN ĐÂY</div>
+    <div id="project-list" class="project-list"><p class="empty">Chưa có dự án</p></div>
+    <div class="sidebar-footer"><span id="mode-indicator" class="mode">● Checking...</span><small>Local-first · Data stored on your machine</small></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><div><span class="eyebrow">BUSINESS ANALYSIS / AUTOMATION</span><h1 id="page-title">From Brief to Blueprint<span class="dot">.</span></h1><p class="subtitle" id="page-subtitle">Biến yêu cầu khách hàng thành đặc tả rõ ràng và prototype có thể kiểm thử.</p></div><div class="top-chip">✦ AI-assisted BA</div></header>
+    <section id="welcome-view">
+      <div class="intro-grid"><div class="intro-stat"><div class="number">01</div><strong>Analyze</strong><span>Chuẩn hóa yêu cầu · Gap & questions</span></div><div class="intro-stat"><div class="number">02</div><strong>Specify</strong><span>BRD · SRS · Traceability</span></div><div class="intro-stat"><div class="number">03</div><strong>Prototype</strong><span>Wireframe tương tác · HTML</span></div></div>
+      <div class="panel input-panel"><div class="section-heading"><div><span class="overline">NEW PROJECT</span><h2>Yêu cầu khách hàng</h2><p>Nhập brief, email, biên bản họp hoặc dán nội dung từ tài liệu.</p></div><button class="quiet" id="sample-btn">↗ Nạp ví dụ demo</button></div>
+        <form id="create-form"><label for="title-input">Tên dự án</label><input id="title-input" placeholder="VD: Hệ thống quản lý bảo hành" maxlength="160" required>
+          <div class="label-row"><label for="brief-input">Customer brief <span class="required">*</span></label><label class="upload" for="brief-file">↑ Tải .txt / .md</label><input id="brief-file" type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" hidden></div>
+          <textarea id="brief-input" rows="11" placeholder="Dán nội dung yêu cầu khách hàng ở đây...\n\nVí dụ: Ai sử dụng hệ thống? Quy trình hiện tại? Chức năng mong muốn? Business rules?" required minlength="15"></textarea>
+          <div class="form-bottom"><small>Thông tin chưa có sẽ được đưa vào Open Questions, không tự suy diễn thành yêu cầu đã xác nhận.</small><button type="submit" class="primary" id="create-btn">Tạo dự án & chạy workflow <span>→</span></button></div>
+        </form></div>
+    </section>
+    <section id="project-view" hidden>
+      <div class="project-heading"><div class="project-id" id="project-id"></div><div class="project-status" id="status-label"></div></div>
+      <div class="steps"><div class="step" data-step="NEW"><span>1</span> Intake</div><div class="step" data-step="ANALYZED"><span>2</span> Analyze</div><div class="step" data-step="REVIEWED"><span>3</span> BA Review</div><div class="step" data-step="GENERATED"><span>4</span> Generate</div></div>
+      <div class="toolbar"><div class="tabs"><button class="tab active" data-tab="workflow">Workflow v3.6</button><button class="tab" data-tab="analysis">Phân tích</button><button class="tab" data-tab="prd">PRD</button><button class="tab" data-tab="brd">BRD</button><button class="tab" data-tab="srs">SRS</button><button class="tab" data-tab="prototype">Prototype</button><button class="tab" data-tab="files">Tài liệu dự án</button></div><div class="toolbar-actions"><button class="quiet" id="reanalyze-btn">↻ Phân tích lại</button></div></div>
+      <div id="workflow-content" hidden></div><div id="analysis-content"></div><div id="document-content" hidden></div><div id="prototype-content" hidden></div><div id="files-content" hidden></div>
+    </section>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </main>
+</div><script type="module" src="/app.js"></script>
+</body></html>

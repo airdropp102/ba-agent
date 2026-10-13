@@ -1,0 +1,8 @@
+{
+  "description": "BA Studio v3.5 continuity hooks; read committed state and export snapshots, never fabricate progress.",
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "node scripts/session-hook.mjs SessionStart", "timeout": 15}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "node scripts/session-hook.mjs PreCompact", "timeout": 15}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "node scripts/session-hook.mjs SessionEnd", "timeout": 15}]}]
+  }
+}

@@ -1,0 +1,311 @@
+{
+  "schemaVersion": "ba.figma.v1",
+  "project": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Cổng tiếp nhận và xử lý bảo hành",
+    "version": 2,
+    "status": "GENERATED"
+  },
+  "inputFiles": [
+    "BRD.md",
+    "SRS.md",
+    "canonical.json"
+  ],
+  "platform": "web",
+  "designSystem": {
+    "provider": "nextlevelbuilder/ui-ux-pro-max-skill",
+    "mode": "recommend-from-project-context",
+    "guidance": "Derive a coherent accessible design system from the installed UI UX Pro Max skill; do not use assumed business requirements."
+  },
+  "figma": {
+    "provider": "grab/cursor-talk-to-figma-mcp",
+    "transport": "MCP via Codex CLI",
+    "document": "CURRENT_OPEN_FIGMA_FILE",
+    "execution": "explicit-operator-action"
+  },
+  "review": {
+    "baReviewed": true,
+    "customerApproved": false,
+    "baselineStatus": "NOT_BASELINED"
+  },
+  "unresolvedQuestions": [
+    {
+      "id": "Q-001",
+      "question": "Xác thực người dùng và kiểm tra phân quyền bằng cơ chế nào?",
+      "impact": "Ảnh hưởng bảo mật và luồng đăng nhập",
+      "priority": "High"
+    },
+    {
+      "id": "Q-002",
+      "question": "Số seri trùng lặp, không hợp lệ hoặc hết hạn bảo hành thì xử lý thế nào?",
+      "impact": "Ảnh hưởng business rules và validation",
+      "priority": "High"
+    },
+    {
+      "id": "Q-003",
+      "question": "Các trạng thái có được quay lui và ai được chuyển trạng thái?",
+      "impact": "Ảnh hưởng transition/permission",
+      "priority": "High"
+    },
+    {
+      "id": "Q-004",
+      "question": "Báo cáo cần bộ lọc thời gian, trạm và xuất file không?",
+      "impact": "Ảnh hưởng phạm vi báo cáo",
+      "priority": "Medium"
+    }
+  ],
+  "screens": [
+    {
+      "id": "SCR-001",
+      "title": "Đăng ký bảo hành",
+      "description": "Bản phác thảo — quy tắc kiểm tra dữ liệu chờ xác nhận.",
+      "designStatus": "DRAFT-WIREFRAME",
+      "requirementIds": [
+        "FR-001"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "canvasPosition": {
+        "x": 0,
+        "y": 0
+      },
+      "components": [
+        {
+          "id": "SCR-001-E01",
+          "type": "heading",
+          "label": "Đăng ký bảo hành",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-001-E02",
+          "type": "input",
+          "label": "Số seri",
+          "placeholder": "Nhập số seri",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-001-E03",
+          "type": "input",
+          "label": "Số điện thoại",
+          "placeholder": "Nhập số điện thoại",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-001-E04",
+          "type": "button",
+          "label": "Gửi yêu cầu (minh họa)",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-001-E05",
+          "type": "button",
+          "label": "Đến danh sách yêu cầu",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": "SCR-002"
+        }
+      ]
+    },
+    {
+      "id": "SCR-002",
+      "title": "Danh sách bảo hành",
+      "description": "Minh họa giao diện nhân viên trạm — chưa có dữ liệu thật.",
+      "designStatus": "DRAFT-WIREFRAME",
+      "requirementIds": [
+        "FR-002"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "canvasPosition": {
+        "x": 1560,
+        "y": 0
+      },
+      "components": [
+        {
+          "id": "SCR-002-E01",
+          "type": "heading",
+          "label": "Yêu cầu bảo hành",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-002-E02",
+          "type": "card",
+          "label": "Phiếu demo #001 — Tiếp nhận",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-002-E03",
+          "type": "select",
+          "label": "Trạng thái (minh họa)",
+          "placeholder": "",
+          "value": "",
+          "options": [
+            "Tiếp nhận",
+            "Đang xử lý",
+            "Hoàn thành"
+          ],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-002-E04",
+          "type": "button",
+          "label": "Đến báo cáo",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": "SCR-003"
+        },
+        {
+          "id": "SCR-002-E05",
+          "type": "button",
+          "label": "Về đăng ký",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": "SCR-001"
+        }
+      ]
+    },
+    {
+      "id": "SCR-003",
+      "title": "Báo cáo",
+      "description": "Chỉ hiển thị dữ liệu mẫu, chưa kết nối hệ thống.",
+      "designStatus": "DRAFT-WIREFRAME",
+      "requirementIds": [
+        "FR-003"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "canvasPosition": {
+        "x": 3120,
+        "y": 0
+      },
+      "components": [
+        {
+          "id": "SCR-003-E01",
+          "type": "heading",
+          "label": "Báo cáo số phiếu theo trạng thái",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-003-E02",
+          "type": "badge",
+          "label": "Tiếp nhận: 3 (demo)",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-003-E03",
+          "type": "badge",
+          "label": "Đang xử lý: 2 (demo)",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-003-E04",
+          "type": "badge",
+          "label": "Hoàn thành: 7 (demo)",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": null
+        },
+        {
+          "id": "SCR-003-E05",
+          "type": "button",
+          "label": "Về danh sách",
+          "placeholder": "",
+          "value": "",
+          "options": [],
+          "actionTarget": "SCR-002"
+        }
+      ]
+    }
+  ],
+  "navigation": [
+    {
+      "fromScreenId": "SCR-001",
+      "fromComponentId": "SCR-001-E05",
+      "toScreenId": "SCR-002",
+      "approval": "DRAFT",
+      "note": "Navigation intention, not native Figma prototype reaction."
+    },
+    {
+      "fromScreenId": "SCR-002",
+      "fromComponentId": "SCR-002-E04",
+      "toScreenId": "SCR-003",
+      "approval": "DRAFT",
+      "note": "Navigation intention, not native Figma prototype reaction."
+    },
+    {
+      "fromScreenId": "SCR-002",
+      "fromComponentId": "SCR-002-E05",
+      "toScreenId": "SCR-001",
+      "approval": "DRAFT",
+      "note": "Navigation intention, not native Figma prototype reaction."
+    },
+    {
+      "fromScreenId": "SCR-003",
+      "fromComponentId": "SCR-003-E05",
+      "toScreenId": "SCR-002",
+      "approval": "DRAFT",
+      "note": "Navigation intention, not native Figma prototype reaction."
+    }
+  ],
+  "traceability": [
+    {
+      "screenId": "SCR-001",
+      "requirementIds": [
+        "FR-001"
+      ]
+    },
+    {
+      "screenId": "SCR-002",
+      "requirementIds": [
+        "FR-002"
+      ]
+    },
+    {
+      "screenId": "SCR-003",
+      "requirementIds": [
+        "FR-003"
+      ]
+    }
+  ],
+  "constraints": [
+    "Preserve all screen/requirement IDs in Figma layer names or descriptions.",
+    "Mark open questions and unapproved assumptions as DRAFT.",
+    "Do not claim any Figma frames or prototype interactions exist until tool calls succeed and nodes are verified.",
+    "Do not delete or modify pre-existing Figma content. Create a new named section."
+  ]
+}

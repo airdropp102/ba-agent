@@ -1,0 +1,9 @@
+{
+  "requirementId": "FR-001",
+  "platformId": "odoo-community",
+  "classification": "CONFIGURE",
+  "verifiedVersion": "19.0",
+  "verifiedEdition": "Community - exact module must be verified",
+  "sourceReference": "POC-DEMO-REPLACE-WITH-ACTUAL-EVIDENCE",
+  "rationale": "REPLACE: BA must document demonstrated steps, missing rules and evidence before submitting this assessment."
+}

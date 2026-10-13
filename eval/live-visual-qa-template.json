@@ -1,0 +1,10 @@
+{
+  "source": "ba-human-visual-qa",
+  "approved": false,
+  "reviewerId": "REPLACE_WITH_APPROVER_ID",
+  "approvedAt": "",
+  "evidenceReference": "REPLACE_WITH_AUDIT_OR_REVIEW_RECORD",
+  "designSpecReference": "REPLACE_WITH_APPROVED_DESIGN_SPEC_ID",
+  "fileKey": "REPLACE_WITH_TEST_FILE_KEY",
+  "nodeId": "1:2"
+}

@@ -1,0 +1,22 @@
+.env
+data/*.json
+.DS_Store
+node_modules/
+.figma-exports/
+
+# Version history, source evidence and Figma node registry: sensitive customer data
+data/
+.figma-exports/
+*.tmp
+
+# BA Live Acceptance includes potentially sensitive customer briefs and model predictions
+acceptance-runs/
+reports/live-*/
+review-packet-*.json
+reviewer-a-*.json
+reviewer-b-*.json
+adjudicator-*.json
+*.live-acceptance.private.json
+
+# v3.5 local continuity state and handoff (may include sensitive project notes)
+.session-handoff/

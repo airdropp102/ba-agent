@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "ba.gold.reviewed.v1",
+  "annotationGuide": "Replace this synthetic example with BA-adjudicated, permissioned and anonymized real cases. Use multiple independent reviewers before production promotion.",
+  "cases": [
+    {
+      "id": "SAMPLE_SYNTHETIC_ONLY",
+      "title": "Phiếu yêu cầu dịch vụ",
+      "brief": "Nhân viên có thể tạo phiếu dịch vụ và trưởng nhóm có thể phân công phiếu cho nhân viên.",
+      "expectedFunctional": [
+        ["tạo phiếu"],
+        ["phân công phiếu", "phân công"]
+      ],
+      "expectedNfr": []
+    }
+  ]
+}
