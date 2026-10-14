@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 const FILE_KEY=/^[\w-]{3,128}$/;
 const CHANNEL=/^[A-Za-z0-9_-]{1,128}$/;
 const NODE=/^\d+:\d+$/;
@@ -5,6 +6,15 @@ const SHA=/^[a-f0-9]{64}$/i;
 const MAX_PREVIEW=5*1024*1024;
 const clone=value=>structuredClone(value);
 const fail=message=>{throw new Error(message)};
+
+export function recordFigmaFileConfirmation(project,{confirmed,runId,documentKey,channelId,projectVersion,confirmedBy}={}){
+ if(confirmed!==true)return null;
+ if(!FILE_KEY.test(documentKey||'')||!CHANNEL.test(channelId||'')||!runId||!Number.isSafeInteger(projectVersion)||!confirmedBy)fail('Invalid Figma file confirmation scope');
+ return {source:'OPERATOR_FILE_CONFIRMATION_NOT_INDEPENDENT_ATTESTATION',projectId:project.id,projectVersion,runId,documentKey,channelDigest:createHash('sha256').update(channelId).digest('hex'),confirmedBy,confirmedAt:new Date().toISOString()};
+}
+export function validFigmaFileConfirmation(confirmation,{project,runId,documentKey,channelId}={}){
+ return Boolean(confirmation&&confirmation.source==='OPERATOR_FILE_CONFIRMATION_NOT_INDEPENDENT_ATTESTATION'&&confirmation.projectId===project?.id&&confirmation.projectVersion===project?.version&&confirmation.runId===runId&&confirmation.documentKey===documentKey&&typeof channelId==='string'&&confirmation.channelDigest===createHash('sha256').update(channelId).digest('hex')&&typeof confirmation.confirmedBy==='string'&&confirmation.confirmedBy.trim()&&Number.isFinite(Date.parse(confirmation.confirmedAt)));
+}
 
 export function parseFigmaDesignInput({fileUrl,channelId}={}){
  if(typeof fileUrl!=='string'||fileUrl.length>2048)fail('Invalid Figma URL');
@@ -51,10 +61,11 @@ export function beginFigmaDesign(project,{documentKey,channelId,jobId}={}){
 }
 
 function normalizePreview(file,screenId){
- if(!file||file.screenId!==screenId||file.contentType!=='image/jpeg')fail(`Missing valid JPEG preview: ${screenId}`);
+ if(!file||file.screenId!==screenId||!['image/jpeg','image/png'].includes(file.contentType))fail(`Missing valid JPEG preview: ${screenId}`);
  if(typeof file.path!=='string'||file.path.startsWith('/')||file.path.includes('\\')||file.path.split('/').some(x=>x==='..'||x==='.'||!x))fail(`Invalid preview path: ${screenId}`);
- if(!/^04-figma\/exports\/v\d+-(?:web|mobile)\/previews\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,80}\.jpg$/i.test(file.path))fail(`Invalid preview path: ${screenId}`);
+ if(!/^04-figma\/exports\/v\d+-(?:web|mobile)\/previews\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,80}\.(?:jpg|png)$/i.test(file.path))fail(`Invalid preview path: ${screenId}`);
  if(!SHA.test(file.sha256||'')||!Number.isSafeInteger(file.sizeBytes)||file.sizeBytes<4||file.sizeBytes>MAX_PREVIEW)fail(`Invalid JPEG preview metadata: ${screenId}`);
+ if(!file.path.endsWith(file.contentType==='image/png'?'.png':'.jpg'))fail(`Preview type/path mismatch: ${screenId}`);
  return {screenId,path:file.path,contentType:file.contentType,sha256:file.sha256.toLowerCase(),sizeBytes:file.sizeBytes};
 }
 
@@ -86,10 +97,13 @@ export function completeFigmaDesign(project,{runId,projectVersion,manifestDigest
 
 export function reviewFigmaDesign(project,{decision,notes='',reviewerId,projectVersion,manifestDigest}={}){
  const current=project?.figmaDesign;
- if(!current||current.state!=='WAITING_FOR_REVIEW'||!current.draft)fail('No Figma design draft is waiting for review');
+ const reopenApproved=current?.state==='APPROVED'&&decision==='REQUEST_CHANGES';
+ if(!current||(!reopenApproved&&current.state!=='WAITING_FOR_REVIEW')||!current.draft)fail('No Figma design draft is waiting for review');
  if(!['APPROVE','REQUEST_CHANGES'].includes(decision))fail('Invalid Figma design review decision');
  if(typeof reviewerId!=='string'||!reviewerId.trim()||reviewerId.length>160)fail('Figma design reviewer identity required');
  if(typeof notes!=='string'||notes.length>3000)fail('Invalid Figma design review notes');
+ if(decision==='REQUEST_CHANGES'&&!notes.trim())fail('Revision feedback is required');
+ if(reopenApproved&&(current.approved?.projectVersion!==project.version||current.approved?.manifestDigest!==manifestDigest))fail('Stale approved Figma design');
  if(projectVersion!==project.version||projectVersion!==current.draft.projectVersion)fail('Stale Figma project version');
  if(manifestDigest!==current.manifestDigest||manifestDigest!==current.draft.manifestDigest)fail('Figma manifest mismatch');
  const next=clone(project),record={decision,notes:notes.trim(),reviewerId:reviewerId.trim(),projectVersion,manifestDigest,reviewedAt:new Date().toISOString(),screenIds:[...current.draft.screenIds]};

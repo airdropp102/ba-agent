@@ -110,3 +110,21 @@ test('v3.6 HTTP: project-scoped files, generated PRD and invalidated current pro
   assert.match(await readFile(r(dir,one,`09-archive/v${String(gen.data.version).padStart(6,'0')}/SRS.md`),'utf8'),/SRS/);
  }finally{proc.kill('SIGTERM');await rm(dir,{recursive:true,force:true})}
 });
+
+test('binary PDF attachments retain bytes and reject cross-project access, malformed base64 and oversized data',()=>setup(async({dataDir,store,workspaces})=>{
+ const a=project('Attachment A'),b=project('Attachment B');store.save(a);store.save(b);
+ const content=Buffer.from('%PDF-1.7\nattachment\n');
+ const doc=await workspaces.addDocument(a.id,{category:'approval',filename:'Biên bản BA.pdf',encoding:'base64',content:content.toString('base64')});
+ const read=await workspaces.readDocument(a.id,doc.id);assert.equal(read.encoding,'base64');assert.deepEqual(Buffer.from(read.content,'base64'),content);
+ await assert.rejects(()=>workspaces.readDocument(b.id,doc.id),/not found/);
+ await assert.rejects(()=>workspaces.addDocument(a.id,{category:'approval',filename:'bad.pdf',encoding:'base64',content:'!!!!'}),/base64/i);
+ await assert.rejects(()=>workspaces.addDocument(a.id,{category:'approval',filename:'big.pdf',encoding:'base64',content:Buffer.alloc(5*1024*1024+1).toString('base64')}),/5 MB/i);
+ const row=store.db.prepare('SELECT relative_path FROM project_documents WHERE id=?').get(doc.id);await writeFile(r(dataDir,a.id,row.relative_path),'tampered');await assert.rejects(()=>workspaces.readDocument(a.id,doc.id),/checksum/);
+}));
+
+test('base64 text attachments support 5 MB policy while legacy plain text stays limited to 300 KB',()=>setup(async({store,workspaces})=>{
+ const a=project('Text attachments');store.save(a);const text='a'.repeat(400000);
+ const doc=await workspaces.addDocument(a.id,{category:'approval',filename:'large.txt',encoding:'base64',content:Buffer.from(text).toString('base64')});
+ assert.equal((await workspaces.readDocument(a.id,doc.id)).content,text);
+ await assert.rejects(()=>workspaces.addDocument(a.id,{category:'approval',filename:'legacy.txt',content:text}),/300KB/i);
+}));

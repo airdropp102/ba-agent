@@ -133,18 +133,26 @@ export class ProjectWorkspaces{
   }
   async migrateAll(){const results=[];for(const item of this.store.list())results.push(await this.migrateLegacy(item.id));return results}
   list(id){this.store.get(requireProjectId(id));return this.store.db.prepare('SELECT id,category,filename,sha256,size_bytes,created_at,actor_id FROM project_documents WHERE project_id=? ORDER BY created_at DESC').all(id)}
-  async addDocument(id,{category,filename,content,actorId='local-operator'}={}){
+  async addDocument(id,{category,filename,content,encoding,actorId='local-operator'}={}){
     const root=await this.ensure(id);
     if(!['customer','reference','approval'].includes(category))throw err('Invalid category: customer|reference|approval');
-    if(typeof filename!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.(md|txt|json|csv)$/i.test(filename)||filename.includes('..'))throw err('Unsafe filename; text files only');
-    if(typeof content!=='string'||Buffer.byteLength(content)>300000||!content.trim())throw err('Content required (up to 300KB)');
+    if(typeof filename!=='string'||! /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,119}\.(md|txt|json|csv|pdf|doc|docx|xls|xlsx|png|jpg|jpeg|webp)$/iu.test(filename)||filename.includes('..'))throw err('Unsafe filename or unsupported file type');
+    const binary=!/\.(md|txt|json|csv)$/i.test(filename);
+    if(binary&&encoding!=='base64')throw err('Binary attachments require base64 encoding');
+    if(encoding!==undefined&&encoding!=='base64')throw err('Unsupported encoding');
+    if(typeof content!=='string'||!content.trim())throw err('Content required');
+    const maxBytes=encoding==='base64'?5*1024*1024:300000;
+    if(content.length>(encoding==='base64'?Math.ceil(maxBytes/3)*4:maxBytes))throw err(encoding==='base64'?'Attachment exceeds 5 MB':'Content exceeds 300KB');
+    if(encoding==='base64'&&(content.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(content)||Buffer.from(content,'base64').toString('base64')!==content))throw err('Invalid base64 content');
+    const bytes=Buffer.from(content,encoding==='base64'?'base64':'utf8');
+    if(!bytes.length||bytes.length>maxBytes)throw err(encoding==='base64'?'Attachment exceeds 5 MB':'Content required (up to 300KB)');
     if(typeof actorId!=='string'||!/^[a-zA-Z0-9_.@-]{3,100}$/.test(actorId))throw err('Invalid actor ID');
     const fileId=randomUUID(),sub=category==='customer'?'01-customer-input':category==='reference'?'02-requirements':'06-reviews';
     const base=category==='reference'?'references':'attachments';
     await safeDirectory(path.join(root,sub,base),this.dir);
     const relativePath=path.posix.join(sub,base,fileId+'-'+filename);
     const absolute=path.join(root,...relativePath.split('/'));
-    const bytes=Buffer.from(content,'utf8'),sha256=digest(bytes),at=new Date().toISOString();
+    const sha256=digest(bytes),at=new Date().toISOString();
     // Write once using a random immutable basename; committed registry entry is the reference.
     await fs.writeFile(absolute,bytes,{flag:'wx',mode:0o600});
     try{
@@ -169,6 +177,7 @@ export class ProjectWorkspaces{
     if(!st.isFile()||st.isSymbolicLink())throw err('Unsafe document file',409);
     const bytes=await fs.readFile(absolute);
     if(bytes.length!==row.size_bytes||digest(bytes)!==row.sha256)throw err('Document evidence checksum mismatch',409);
-    return {id:row.id,filename:row.filename,category:row.category,sha256:row.sha256,content:bytes.toString('utf8')};
+    const binary=!/\.(md|txt|json|csv)$/i.test(row.filename)||!Buffer.from(bytes.toString('utf8')).equals(bytes);
+    return {id:row.id,filename:row.filename,category:row.category,sha256:row.sha256,...(binary?{encoding:'base64'}:{}),content:bytes.toString(binary?'base64':'utf8')};
   }
 }

@@ -5,7 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import {readFileSync, existsSync} from 'node:fs';
 import {ProductionStore} from './production-store.js';
-import {ProjectWorkspaces,figmaRegistryDirectory,workflowArtifactDirectory} from './project-workspaces.js';
+import {ProjectWorkspaces,figmaRegistryDirectory} from './project-workspaces.js';
 import {withAIContext,setTelemetrySink} from './ai-telemetry.js';
 import {assessDeliverables,qualityPolicy} from './quality-intelligence.js';
 import {validateReadback} from './figma-readback.js';
@@ -23,12 +23,13 @@ import {renderStandalone} from './export.js';
 import {buildFigmaHandoff} from './figma-handoff.js';
 import {buildPublishPlan} from './figma-registry.js';
 import {createFigmaRelayManager} from './figma-relay.js';
-import {parseFigmaDesignInput,beginFigmaDesign,completeFigmaDesign,reviewFigmaDesign} from './figma-design-review.js';
-import {publishFigmaDesign} from './figma-publisher.js';
+import {parseFigmaDesignInput,beginFigmaDesign,completeFigmaDesign,reviewFigmaDesign,recordFigmaFileConfirmation} from './figma-design-review.js';
+import {publishFigmaDesign,FIGMA_PREFLIGHT_FAILURE_CODES} from './figma-publisher.js';
 import {FigmaPreviewStore} from './figma-preview-store.js';
+import {exportFigmaPreview} from './figma-preview-export.js';
 import {normalizeTechStack,createRecommendations,recordDecision,validDecision,techStackDigest,availableSolutionReferences} from './clarification-recommendations.js';
 import {ERP_CATALOG,ERP_PROCESSES,normalizeSolutionProfile,erpFitGapReport,recordERPFitGap,erpSolutionComparison} from './erp-intelligence.js';
-import {ensureWorkflow,unresolvedHigh,hasCurrentWaiver,acceptClarificationRisk,invalidateAfterAnalysis,checkpoint,nextStage,qualitySnapshot,designCoverage,hasActiveWorkflow} from './intelligent-workflow.js';
+import {ensureWorkflow,unresolvedHigh,hasCurrentWaiver,acceptClarificationRisk,invalidateAfterAnalysis,checkpoint,nextStage,qualitySnapshot,hasActiveWorkflow} from './intelligent-workflow.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 if (existsSync(path.join(root,'.env'))) {
@@ -88,12 +89,25 @@ function reviewerId(req){
   if(identityRequired)throw Object.assign(new Error('Authenticated reviewer token required'),{status:401});
   return 'local-operator-unauthenticated';
 }
+async function resolveAnswerAttachments(projectId,entry){
+ if(!entry||typeof entry!=='object'||Array.isArray(entry))throw Object.assign(new Error('Invalid answer entry'),{status:400});
+ const ids=entry.attachmentIds||[];
+ if(!Array.isArray(ids)||ids.length>10||new Set(ids).size!==ids.length)throw Object.assign(new Error('Invalid attachment IDs (up to 10 unique files)'),{status:400});
+ const docs=[];for(const id of ids)docs.push(await workspaces.readDocument(projectId,id));
+ const reference=docs.length?'Project attachments: '+docs.map(d=>d.id).join(', '):null;
+ return {...entry,attachments:docs.map(d=>({id:d.id,filename:d.filename,sha256:d.sha256})),...(reference&&!entry.sourceReference?{sourceReference:reference.slice(0,300)}:{}),...(entry.approverRole==='customer'&&reference&&!entry.rationale?{rationale:'Customer-attested option selection with attached documentation.'}:{})};
+}
 async function newAnalysis(p,sourceText) {
+ return withExecutionContext({projectId:p.id,runId:p.workflow?.runId,stage:'ELICITATION',executionId:randomUUID()},async()=>{
+  const started=Date.now();
+  logExecution('ANALYSIS_INPUT',{briefChars:sourceText.length,sourceCount:p.sources?.length||0,sourceIds:(p.sources||[]).map(s=>s.id),answerCount:p.answers?.length||0,decisionCount:p.clarificationDecisions?.length||0,questionIds:(p.answers||[]).map(a=>a.questionId)});
   for(const d of p.clarificationDecisions||[])if(d.status==='APPROVED'&&d.briefDigest!==fingerprint(p.brief))d.status='STALE_BRIEF_CHANGED';
   const decisions=(p.clarificationDecisions||[]).filter(d=>d.status==='APPROVED'&&d.stackDigest===techStackDigest(p)&&d.briefDigest===fingerprint(p.brief));
   const augmented=sourceText+(decisions.length?'\n\n=== PREVIOUSLY AUTHORIZED DECISIONS (not necessarily customer sign-off; provenance retained separately) ===\n'+decisions.map(d=>`${d.questionId} [${d.approverRole} / ${d.sourceReference}]: ${d.answer}`).join('\n'):'');
   const raw=await withAIContext({projectId:p.id,runId:p.workflow?.runId||null,stage:'ELICITATION'},()=>analyze(p.title,augmented,p.solutionProfile||null));
+  logExecution('ANALYSIS_NORMALIZE');
   const incoming=normalizeAnalysis(raw,augmented);
+  logExecution('ANALYSIS_EVIDENCE_CHECK');
   const trusted=applyEvidenceTrust(incoming,p.sources||buildSources(p.brief));
   const base=mergeStableIds(trusted,p.analysis,p.nextIds||{}, {prefixes:['FR','NFR','BR']});
   const prepared=prepareBAAnalysis(base.analysis);
@@ -106,11 +120,13 @@ async function newAnalysis(p,sourceText) {
   p.changeLog=[...(p.changeLog||[]),{at:new Date().toISOString(),fromVersion:p.version,changes:[...base.changes,...questions.changes]}].slice(-100);
   p.review=null;p.previousPrototype=p.prototype||p.previousPrototype||null;p.prototype=null;p.status='ANALYZED';p.version++;
   p.updatedAt=new Date().toISOString();
+  logExecution('ANALYSIS_READY',{durationMs:Date.now()-started,frCount:p.analysis.functionalRequirements.length,nfrCount:p.analysis.nonFunctionalRequirements.length,brCount:p.analysis.businessRules.length,questionCount:p.analysis.clarificationQuestions.length});
+ });
 }
 
 const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data,(key,value)=>['channelId','revisionNotes'].includes(key)?undefined:value))};
 const error=(res,msg,status=400)=>json(res,{error:msg},status);
-const readBody=async req=>{let size=0;const buffers=[];for await(const chunk of req){size+=chunk.length;if(size>500_000)throw Object.assign(new Error('Dữ liệu đầu vào vượt giới hạn 500 KB'),{status:413});buffers.push(chunk)}try{return JSON.parse(Buffer.concat(buffers).toString('utf8'))}catch{throw Object.assign(new Error('JSON không hợp lệ'),{status:400})}};
+const readBody=async (req,limit=500_000)=>{let size=0;const buffers=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(new Error(`Dữ liệu đầu vào vượt giới hạn ${Math.round(limit/1000)} KB`),{status:413});buffers.push(chunk)}try{return JSON.parse(Buffer.concat(buffers).toString('utf8'))}catch{throw Object.assign(new Error('JSON không hợp lệ'),{status:400})}};
 const docsFilename={prd:'PRD.md',brd:'BRD.md',srs:'SRS.md',prototype:'prototype.html',json:'analysis.json',canonical:'canonical.json',questions:'clarification-questions.md',figma:'FIGMA_INSTRUCTIONS.md','figma-manifest':'figma-manifest.json'};
 const sendDownload=(res,filename,content,type)=>{res.writeHead(200,{'Content-Type':type,'Content-Disposition':`attachment; filename="${filename}"`,'X-Content-Type-Options':'nosniff'});res.end(content)};
 
@@ -119,30 +135,6 @@ async function createPrototype(p){
   p.prototype=normalizePrototype(proto,p.analysis,{previous:p.prototype||p.previousPrototype,maxId:p.nextIds?.SCR||0});
   p.nextIds={...(p.nextIds||{}),SCR:Math.max(p.nextIds?.SCR||0,...p.prototype.screens.map(s=>Number(s.id.match(/^SCR-(\d+)$/)?.[1]||0)),0)};
   p.status='GENERATED';p.version++;p.updatedAt=new Date().toISOString();
-}
-async function writeDesignArtifacts(p){
-  const wf=ensureWorkflow(p);const handoff=buildFigmaHandoff(p,{platform:wf.platform});
-  const coverage=designCoverage(p,handoff.manifest);
-  if(!coverage.requirements||coverage.unmapped.length)throw new Error('Figma coverage incomplete: '+coverage.unmapped.join(','));
-  const base=path.join(workspaces.root(p.id),'05-workflow','runs');
-  await fs.mkdir(base,{recursive:true,mode:0o700});
-  const dir=workflowArtifactDirectory(dataDir,p.id,wf.runId);const stage=dir+'.'+randomUUID()+'.tmp';
-  const plan=buildPublishPlan(handoff.manifest);
-  const files={
-    'BRD.md':handoff.brd,'SRS.md':handoff.srs,
-    'canonical.json':JSON.stringify(handoff.canonical,null,2),
-    'questions.md':renderQuestionnaire(p),'prototype.html':renderStandalone(p),
-    'figma-manifest.json':JSON.stringify(handoff.manifest,null,2),
-    'FIGMA_INSTRUCTIONS.md':handoff.instructions,
-    'figma-publish-plan.json':JSON.stringify(plan,null,2),
-    'quality-metrics.json':JSON.stringify({legacy:qualitySnapshot(p),intelligence:assessDeliverables(p,{policy:qualitySettings})},null,2)
-  };
-  try{
-    await fs.mkdir(stage,{recursive:true,mode:0o700});
-    for(const [filename,content] of Object.entries(files))await fs.writeFile(path.join(stage,filename),content,{mode:0o600});
-    await fs.rm(dir,{recursive:true,force:true});await fs.rename(stage,dir);
-  }finally{await fs.rm(stage,{recursive:true,force:true}).catch(()=>{})}
-  return {dir,coverage,files:Object.keys(files),manifestDigest:fingerprint(JSON.stringify(handoff.manifest))};
 }
 async function setWorkflowState(p,state){
   const wf=ensureWorkflow(p);
@@ -162,10 +154,8 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
   }
   for(let i=0;i<(auto?8:1);i++){
     const stage=wf.stage;
-    if(stage==='FIGMA_PUBLISH'){
-      if(['FIGMA_REPORTED','FIGMA_READBACK_REPORTED','FIGMA_QA_APPROVED'].includes(wf.state))return p;
-      await setWorkflowState(p,'AWAITING_FIGMA');return p;
-    }
+    // Historical manual Figma runs remain readable; design now runs from Prototype.
+    if(wf.state==='COMPLETED'||['FIGMA_DESIGN','FIGMA_PUBLISH'].includes(stage))return p;
     if(stage==='CLARIFICATION' && unresolvedHigh(p).length && !hasCurrentWaiver(p)){
       await setWorkflowState(p,'WAITING_CLARIFICATION');return p;
     }
@@ -182,6 +172,7 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
         await setWorkflowState(p,'WAITING_QUALITY_REVIEW');return p;
       }
     }
+    logExecution('WORKFLOW_STAGE_START',{projectId:p.id,runId:wf.runId,stage});
     const attemptId=randomUUID();
     await archive(p);
     // A crashed executor may leave a RUNNING marker from an earlier lease.
@@ -217,19 +208,16 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
         if(!p.review?.approved)throw new Error('BA review is required');
         if(!p.prototype)await createPrototype(p);
         details={screens:p.prototype.screens.length,quality:assessDeliverables(p,{policy:qualitySettings}).decision};
-      }else if(stage==='FIGMA_DESIGN'){
-        const artifacts=await writeDesignArtifacts(p);
-        wf.artifactDir=artifacts.dir;
-        wf.design={coverage:artifacts.coverage,files:artifacts.files,manifestDigest:artifacts.manifestDigest,publication:'NOT_PUBLISHED'};
-        details={coverage:artifacts.coverage,publication:'NOT_PUBLISHED'};
       }else throw new Error('Unknown workflow stage');
       await archive(p);
       const attempt=wf.attempts.find(x=>x.id===attemptId);if(attempt){attempt.result='SUCCEEDED';attempt.finishedAt=new Date().toISOString();}
+      logExecution('WORKFLOW_STAGE_COMPLETE',{projectId:p.id,runId:wf.runId,stage});
       checkpoint(p,stage,details);
-      wf.stage=nextStage(stage);wf.state=wf.stage==='FIGMA_PUBLISH'?'AWAITING_FIGMA':'READY';
+      wf.stage=stage==='DELIVERABLES'?stage:nextStage(stage);wf.state=stage==='DELIVERABLES'?'COMPLETED':'READY';
       wf.updatedAt=new Date().toISOString();p.version++;p.updatedAt=wf.updatedAt;await save(p);
-      if(wf.stage==='FIGMA_PUBLISH')return p;
+      if(wf.state==='COMPLETED')return p;
     }catch(cause){
+      logExecution('WORKFLOW_STAGE_ERROR',{projectId:p.id,runId:wf.runId,stage,errorCode:cause?.status===504?'PROVIDER_TIMEOUT':'STEP_FAILED'});
       console.error('[BA Workflow]',stage,cause?.message?.slice(0,200));
       // Re-read the durable RUNNING snapshot to avoid committing half-mutated objects.
       const persisted=await safeGet(p.id,p._leaseToken);
@@ -264,7 +252,7 @@ async function handler(req,res){
       }
       if(String(req.headers['content-type']||'').split(';')[0].trim()!=='application/json')return error(res,'Content-Type must be application/json',415);
     }
-    if(req.method==='GET'&&url.pathname==='/api/status')return json(res,{demo,provider:mode,model:mode==='demo'?'demo':mode==='codex'?'codex-cli':process.env.OPENAI_MODEL||'gpt-4.1-mini',localOnly:!publicBind,engine:'sqlite-wal-v3.4',qualityPolicy:qualitySettings,durableJobs:true});
+    if(req.method==='GET'&&url.pathname==='/api/status')return json(res,{demo,provider:mode,model:mode==='demo'?'demo':mode==='codex'?(process.env.CODEX_MODEL||'codex-cli'):process.env.OPENAI_MODEL||'gpt-4.1-mini',localOnly:!publicBind,engine:'sqlite-wal-v3.4',qualityPolicy:qualitySettings,durableJobs:true,progressLogging:process.env.BA_LOG_PROGRESS!=='false',...(mode==='codex'?{codexTimeoutMs:codexTimeoutMs(process.env.CODEX_TIMEOUT_MS)}:{})});
     if(url.pathname.startsWith('/api/figma/relay')){
       if(publicBind)return error(res,'Figma relay controls are available only on loopback BA Studio',403);
       if(req.method==='GET'&&url.pathname==='/api/figma/relay')return json(res,figmaRelay.status());
@@ -313,23 +301,25 @@ async function handler(req,res){
         if(p.review?.approved!==true||!p.prototype?.screens?.length)return error(res,'BA Review và prototype hiện tại là điều kiện bắt buộc trước khi vẽ Figma.',409);
         if(figmaRelay.status().state!=='READY')return error(res,'Hãy khởi chạy Figma relay và kết nối plugin trước khi tiếp tục.',409);
         const body=await readBody(req);let connection,revisionNotes='';
+        if(body.fileIdentityConfirmed!==undefined&&typeof body.fileIdentityConfirmed!=='boolean')return error(res,'File identity confirmation must be an explicit boolean.',400);
         if(body.revisionNotes!==undefined){
           revisionNotes=String(body.revisionNotes);if(!revisionNotes.trim()||revisionNotes.length>3000)return error(res,'Revision feedback phải có nội dung và tối đa 3000 ký tự.',400);
-          if(p.figmaDesign?.state!=='REVISION_REQUESTED'||!p.figmaDesign.channelId)return error(res,'Không có bản design đang chờ chỉnh sửa.',409);
-          connection={documentKey:p.figmaDesign.documentKey,channelId:p.figmaDesign.channelId};
+          if(p.figmaDesign?.state!=='REVISION_REQUESTED'||!(body.channelId||p.figmaDesign.channelId))return error(res,'Không có bản design đang chờ chỉnh sửa hoặc chưa nhập Channel ID đang kết nối.',409);
+          try{connection=body.channelId===undefined?{documentKey:p.figmaDesign.documentKey,channelId:p.figmaDesign.channelId}:parseFigmaDesignInput({fileUrl:`https://www.figma.com/design/${p.figmaDesign.documentKey}`,channelId:body.channelId})}catch(e){return error(res,e.message,400)}
         }else{try{connection=parseFigmaDesignInput(body)}catch(e){return error(res,e.message,400)}}
         const runId=randomUUID(),projectVersion=p.version+1;
         const next=beginFigmaDesign(p,{...connection,jobId:runId});next.figmaDesign.state='QUEUED';next.figmaDesign.revisionNotes=revisionNotes;
         next.version=projectVersion;next.figmaDesign.projectVersion=projectVersion;next.updatedAt=new Date().toISOString();
+        next.figmaDesign.fileConfirmation=recordFigmaFileConfirmation(next,{confirmed:body.fileIdentityConfirmed,runId,...connection,projectVersion,confirmedBy:reviewerId(req)});
         const job=store.enqueue(p.id,runId,{kind:'figma-design',documentKey:connection.documentKey,channelId:connection.channelId,revisionNotes,projectVersion},{maxAttempts:1});
-        auditAs(next,reviewerId(req),'FIGMA_DESIGN_QUEUED',{runId,revision:next.figmaDesign.revision,projectVersion});store.attach(next,p._dbRevision,requestLease);await save(next);
+        auditAs(next,reviewerId(req),'FIGMA_DESIGN_QUEUED',{runId,revision:next.figmaDesign.revision,projectVersion,fileConfirmation:next.figmaDesign.fileConfirmation});store.attach(next,p._dbRevision,requestLease);await save(next);
         return json(res,{projectId:p.id,version:next.version,figmaDesign:{...next.figmaDesign,channelId:undefined},jobId:job.id,state:'QUEUED'},202);
       }
       if(segments[3]==='figma-design'&&segments[4]==='review'&&segments.length===5&&req.method==='POST'){
         const body=await readBody(req),actor=reviewerId(req);let next;
         try{next=reviewFigmaDesign(p,{...body,reviewerId:actor})}catch(e){return error(res,e.message,409)}
         next.version++;next.updatedAt=new Date().toISOString();if(next.figmaDesign.draft)next.figmaDesign.draft.projectVersion=next.version;
-        if(next.figmaDesign.approved)next.figmaDesign.approved.projectVersion=next.version;
+        if(body.decision==='APPROVE'&&next.figmaDesign.approved)next.figmaDesign.approved.projectVersion=next.version;
         auditAs(next,actor,'FIGMA_DESIGN_'+body.decision,{manifestDigest:body.manifestDigest,projectVersion:body.projectVersion,screenIds:next.figmaDesign.history.at(-1).screenIds});store.attach(next,p._dbRevision,requestLease);await save(next);
         const design=structuredClone(next.figmaDesign);delete design.channelId;delete design.revisionNotes;return json(res,{projectId:next.id,version:next.version,figmaDesign:design});
       }
@@ -338,7 +328,7 @@ async function handler(req,res){
         const screens=design?.state==='WAITING_FOR_REVIEW'&&design.draft?.projectVersion===p.version?design.screens:design?.state==='APPROVED'&&design.approved?.projectVersion===p.version?design.approved.screens:null;
         const item=screens?.find(s=>s.screenId===screenId);if(!item)return error(res,'Preview is not available for this project screen',404);
         const bytes=await figmaPreviews.read(p.id,item.preview.path,item.preview);
-        res.writeHead(200,{'Content-Type':'image/jpeg','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);
+        res.writeHead(200,{'Content-Type':item.preview.contentType,'Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);
       }
       if(segments[3]==='erp'&&segments.length===4&&req.method==='GET')return json(res,{projectId:p.id,profile:p.solutionProfile||null,assessment:erpFitGapReport(p),comparison:erpSolutionComparison(p)});
       if(segments[3]==='erp'&&segments[4]==='profile'&&segments.length===5&&req.method==='POST'){
@@ -392,11 +382,12 @@ async function handler(req,res){
         if(body.questionIds&&(!Array.isArray(body.questionIds)||!body.questionIds.length||body.questionIds.length>5||new Set(body.questionIds).size!==body.questionIds.length||body.questionIds.some(id=>typeof id!=='string'||!p.analysis.clarificationQuestions.some(q=>q.id===id&&!['resolved','answered-pending-ba-review'].includes(q.status)))))return error(res,'Invalid open question batch (1-5 IDs)',400);
         const question=body.questionId?p.analysis.clarificationQuestions.find(q=>q.id===body.questionId&&q.status!=='resolved'):null;
         if(body.questionId&&!question)return error(res,'Open question not found',404);
-        const input={...p,recommendationMode:business?'business':'technical',analysis:question?{...p.analysis,clarificationQuestions:[question]}:body.questionIds?{...p.analysis,clarificationQuestions:p.analysis.clarificationQuestions.filter(q=>body.questionIds.includes(q.id))}:p.analysis};
+        if(body.selectionMode&&body.selectionMode!=='ba-draft')return error(res,'Invalid selection mode',400);
+        const input={...p,recommendationSelectionMode:body.selectionMode,recommendationMode:business?'business':'technical',analysis:question?{...p.analysis,clarificationQuestions:[question]}:body.questionIds?{...p.analysis,clarificationQuestions:p.analysis.clarificationQuestions.filter(q=>body.questionIds.includes(q.id))}:p.analysis};
         const raw=await withAIContext({projectId:p.id,runId:p.workflow?.runId||null,stage:'GAP_ANALYSIS'},()=>recommendClarifications(input));
         const previous=p.clarificationRecommendations||[];
         if(body.questionIds&&body.questionIds.some(id=>!raw.some(r=>r.questionId===id)))return error(res,'Incomplete draft batch; retry these questions',422);
-        createRecommendations(p,question?raw.filter(r=>r.questionId===question.id):body.questionIds?raw.filter(r=>body.questionIds.includes(r.questionId)):raw,{provider:mode,mode:business?'business':'technical'});
+        createRecommendations(p,question?raw.filter(r=>r.questionId===question.id):body.questionIds?raw.filter(r=>body.questionIds.includes(r.questionId)):raw,{provider:mode,mode:business?'business':'technical',selectionMode:body.selectionMode});
         if(question&&!p.clarificationRecommendations.length)return error(res,'No draft answer returned for this question; retry or enter your own answer',422);
         if(question||body.questionIds){const requested=body.questionIds||[question.id];p.clarificationRecommendations=[...previous.filter(r=>!requested.includes(r.questionId)),...p.clarificationRecommendations];}
         p.version++;p.updatedAt=new Date().toISOString();
@@ -418,8 +409,8 @@ async function handler(req,res){
       }
       if(segments[3]==='files'&&segments.length===4&&req.method==='GET')return json(res,workspaces.list(p.id));
       if(segments[3]==='files'&&segments.length===4&&req.method==='POST'){
-        const body=await readBody(req);
-        const doc=await workspaces.addDocument(p.id,{category:body.category,filename:body.filename,content:body.content,actorId:reviewerId(req)});
+        const body=await readBody(req,7_100_000);
+        const doc=await workspaces.addDocument(p.id,{category:body.category,filename:body.filename,content:body.content,encoding:body.encoding,actorId:reviewerId(req)});
         return json(res,doc,201);
       }
       if(segments[3]==='files'&&segments.length===5&&req.method==='GET')return json(res,await workspaces.readDocument(p.id,segments[4]));
@@ -442,7 +433,7 @@ async function handler(req,res){
       if(segments[3]==='workflow'&&segments[4]==='jobs'&&segments.length===5&&req.method==='POST'){
         const body=await readBody(req);const wf=ensureWorkflow(p);
         if(body.platform!==undefined&&!['web','mobile'].includes(body.platform))return error(res,'Invalid platform',400);
-        if(wf.stage==='FIGMA_PUBLISH')return error(res,'Figma publishing requires operator action',409);
+        if(wf.state==='COMPLETED'||['FIGMA_DESIGN','FIGMA_PUBLISH'].includes(wf.stage))return error(res,'BA workflow complete; manage Figma design from Prototype',409);
         const job=store.enqueue(p.id,wf.runId,{auto:body.auto!==false,platform:body.platform});
         return json(res,{jobId:job.id,state:job.state,projectId:p.id,runId:wf.runId},202);
       }
@@ -550,7 +541,9 @@ async function handler(req,res){
       }
       if(segments[3]==='answers'&&segments[4]==='batch'&&req.method==='POST'){
         const body=await readBody(req),actor=reviewerId(req);
-        const result=applyClarificationBatch(p,body.answers,actor);invalidateAfterAnalysis(p);
+        if(!Array.isArray(body.answers)||body.answers.length>100)return error(res,'Invalid answer batch',400);
+        const entries=[];for(const entry of body.answers)entries.push(await resolveAnswerAttachments(p.id,entry));
+        const result=applyClarificationBatch(p,entries,actor);invalidateAfterAnalysis(p);
         p.version++;p.updatedAt=new Date().toISOString();
         auditAs(p,actor,'CLARIFICATION_BATCH_SAVED',{...result,customerBaselineApproved:false});
         await save(p);return json(res,p);
@@ -609,7 +602,7 @@ async function handler(req,res){
       }
     }
     if(req.method==='GET' && !url.pathname.startsWith('/api/')){
-      const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/workflow-progress.js':'workflow-progress.js','/clarification-ui.js':'clarification-ui.js','/clarification-batch-ui.js':'clarification-batch-ui.js'};
+      const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/workflow-progress.js':'workflow-progress.js','/clarification-ui.js':'clarification-ui.js','/clarification-batch-ui.js':'clarification-batch-ui.js','/figma-review-ui.js':'figma-review-ui.js'};
       const file=files[url.pathname];if(!file)return error(res,'Not Found',404);
       const content=await fs.readFile(path.join(publicDir,file));res.writeHead(200,{'Content-Type':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.js')?'application/javascript; charset=utf-8':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff'});return res.end(content);
     }
@@ -619,6 +612,7 @@ async function handler(req,res){
 }
 const server=http.createServer(handler);
 const port=Number(process.env.PORT||3478);
+logExecution('SERVICE_CONFIG',{provider:mode,model:mode==='codex'?(process.env.CODEX_MODEL||'codex-cli'):mode==='openai'?(process.env.OPENAI_MODEL||'gpt-4.1-mini'):'demo',...(mode==='codex'?{timeoutMs:codexTimeoutMs(process.env.CODEX_TIMEOUT_MS)}:{})});
 if(process.env.BA_WORKER_ONLY!=='true')server.listen(port,host,()=>console.log(`BA Studio v3.4: http://${host}:${port} | provider=${mode}`));
 else console.log(`BA Studio v3.4 worker-only mode | provider=${mode} | db=${dataDir}`);
 
@@ -647,13 +641,13 @@ async function tickWorker(){
       for(const [name,content] of Object.entries(files))await fs.writeFile(path.join(outputDirectory,name),content,{mode:0o600});
       const registryFile=registryPath(p.id,job.options.documentKey);let registry=null;
       if(existsSync(registryFile))registry=JSON.parse(await fs.readFile(registryFile,'utf8'));
-      const published=await withExecutionContext({projectId:p.id,runId,stage:'FIGMA_DESIGN',provider:'codex',model:process.env.CODEX_MODEL||'codex-cli'},()=>publishFigmaDesign({project:p,designPack:handoff,documentKey:job.options.documentKey,channelId:job.options.channelId,revisionNotes:job.options.revisionNotes||'',outputDirectory,registry,runner:(prompt,schema,options)=>runCodexStructured(prompt,schema,{...options,timeoutMs:codexTimeoutMs(process.env.CODEX_FIGMA_TIMEOUT_MS||600000)})}));
+      const published=await withExecutionContext({projectId:p.id,runId,stage:'FIGMA_DESIGN',provider:'codex',model:process.env.CODEX_MODEL||'codex-cli'},()=>publishFigmaDesign({project:p,designPack:handoff,runId,fileConfirmation:design.fileConfirmation,previewExporter:options=>exportFigmaPreview({...options,port:Number(process.env.FIGMA_RELAY_PORT||3055)}),documentKey:job.options.documentKey,channelId:job.options.channelId,revisionNotes:job.options.revisionNotes||'',outputDirectory,registry,runner:(prompt,schema,options)=>runCodexStructured(prompt,schema,{...options,timeoutMs:codexTimeoutMs(process.env.CODEX_FIGMA_TIMEOUT_MS||600000)})}));
       const registryDir=figmaRegistryDirectory(dataDir,p.id);await fs.mkdir(registryDir,{recursive:true,mode:0o700});
       const registryTarget=path.join(registryDir,`${job.options.documentKey}.json`),registryTemp=registryTarget+'.'+randomUUID()+'.tmp';
       try{await fs.writeFile(registryTemp,JSON.stringify(published.registry,null,2),{flag:'wx',mode:0o600});await fs.rename(registryTemp,registryTarget)}finally{await fs.rm(registryTemp,{force:true}).catch(()=>{})}
       const previewFiles=await figmaPreviews.write(p.id,{version:p.version,platform,runId,previews:published.previews});
       const next=completeFigmaDesign(p,{runId,projectVersion:p.version,manifestDigest:published.manifestDigest,screens:published.screens,previewFiles});
-      next.version++;next.figmaDesign.projectVersion=next.version;next.figmaDesign.draft.projectVersion=next.version;delete next.figmaDesign.revisionNotes;next.updatedAt=new Date().toISOString();
+      next.figmaDesign.fileIdentity=published.fileIdentity;next.version++;next.figmaDesign.projectVersion=next.version;next.figmaDesign.draft.projectVersion=next.version;delete next.figmaDesign.revisionNotes;next.updatedAt=new Date().toISOString();
       auditAs(next,'worker','FIGMA_DESIGN_READY_FOR_REVIEW',{runId,revision:next.figmaDesign.revision,manifestDigest:published.manifestDigest,screenIds:next.figmaDesign.draft.screenIds,projectVersion:next.version});
       store.attach(next,p._dbRevision,job.token);await save(next);store.finishJob(job.id,job.token,{resultVersion:next.version});
       logExecution('WORKER_FIGMA_DESIGN_COMPLETE',{projectId:p.id,runId,version:next.version,screens:previewFiles.length});return;
@@ -664,8 +658,9 @@ async function tickWorker(){
     logExecution('WORKER_JOB_COMPLETE',{projectId:job.project_id,runId:job.run_id,version:result.version});
   }catch(e){
     if(job.options?.kind==='figma-design'){
-      console.error('[BA Worker] Figma design failed',job.id);
-      try{const failed=await safeGet(job.project_id,job.token);if(failed.figmaDesign?.runId===job.run_id&&failed.figmaDesign.state==='QUEUED'){failed.figmaDesign.state='FAILED';failed.figmaDesign.errorCode='DESIGN_FAILED';failed.version++;failed.updatedAt=new Date().toISOString();auditAs(failed,'worker','FIGMA_DESIGN_FAILED',{runId:job.run_id,revision:failed.figmaDesign.revision});await save(failed)}store.finishJob(job.id,job.token,{error:'Figma design failed',retryable:false})}catch(x){console.error('[BA Worker] Figma failure finalization rejected:',x.message)}
+      const errorCode=FIGMA_PREFLIGHT_FAILURE_CODES.includes(e?.code)?e.code:'DESIGN_FAILED';
+      console.error('[BA Worker] Figma design failed',job.id,errorCode);
+      try{const failed=await safeGet(job.project_id,job.token);if(failed.figmaDesign?.runId===job.run_id&&failed.figmaDesign.state==='QUEUED'){failed.figmaDesign.state='FAILED';failed.figmaDesign.errorCode=errorCode;failed.version++;failed.updatedAt=new Date().toISOString();auditAs(failed,'worker','FIGMA_DESIGN_FAILED',{runId:job.run_id,revision:failed.figmaDesign.revision,errorCode});await save(failed)}store.finishJob(job.id,job.token,{error:errorCode,retryable:false})}catch(x){console.error('[BA Worker] Figma failure finalization rejected:',x.message)}
     }else{
       console.error('[BA Worker] failed job',job.id,e.message);
       try{store.finishJob(job.id,job.token,{error:e.message,retryable:!(/Workflow run changed|queued job is stale/.test(e.message))})}catch(x){console.error('[BA Worker] finish rejected:',x.message)}

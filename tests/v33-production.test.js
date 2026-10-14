@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
+import {fingerprint} from '../src/revisions.js';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
@@ -10,6 +11,9 @@ import {sampleBrief,sampleTitle} from '../src/demo.js';
 import {unresolvedHigh} from '../src/intelligent-workflow.js';
 import {buildFigmaHandoff} from '../src/figma-handoff.js';
 import {buildPublishPlan,acceptVerifiedFigmaReport} from '../src/figma-registry.js';
+import {beginFigmaDesign,completeFigmaDesign,reviewFigmaDesign} from '../src/figma-design-review.js';
+import {demoAnalysis,demoPrototype} from '../src/demo.js';
+import {normalizeAnalysis,normalizePrototype} from '../src/normalize.js';
 import {mkdir} from 'node:fs/promises';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const temp=()=>mkdtemp(path.join(os.tmpdir(),'ba-v33-'));
@@ -25,6 +29,27 @@ async function launch(dir,opts={}) {
 }
 
 async function until(fn,limitMs=4000){const end=Date.now()+limitMs;while(Date.now()<end){const val=await fn();if(val)return val;await sleep(45)}throw new Error('Timed out waiting for expected job state')}
+
+test('Browser entrypoint and all imported UI modules are served as JavaScript',async()=>{
+ const dir=await temp();let server;
+ try{
+  const port=45000+Math.floor(Math.random()*3000);server=await launch(dir,{port});
+  const base=`http://127.0.0.1:${port}`;
+  const html=await (await fetch(base)).text();
+  const entry=html.match(/<script type="module" src="([^"]+)"/);
+  assert.ok(entry,'HTML must load a module entrypoint');
+  const pending=[new URL(entry[1],base).href],visited=new Set();
+  while(pending.length){
+   const url=pending.pop();if(visited.has(url))continue;visited.add(url);
+   const response=await fetch(url);
+   assert.equal(response.status,200,`Missing browser module: ${url}`);
+   assert.match(response.headers.get('content-type'),/application\/javascript/);
+   const source=await response.text();
+   for(const match of source.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g))pending.push(new URL(match[1],url).href);
+  }
+  assert.ok(visited.has(new URL('/figma-review-ui.js',base).href));
+ }finally{await server?.stop();await rm(dir,{recursive:true,force:true})}
+});
 
 test('SQLite is source of truth; stale writers rejected and audit chain survives rollback',async()=>{
  const dir=await temp();try{
@@ -93,14 +118,66 @@ test('Figma design API binds queued work to project version without exposing cha
   assert.equal((await server.api(base+'/review','POST',{approved:true,notes:'BA Review complete for design handoff.'})).status,200);
   assert.equal((await server.api(base+'/generate','POST',{})).status,200);
   assert.equal((await server.api('/api/figma/relay/start','POST',{})).status,200);
-  result=await server.api(base+'/figma-design','POST',{fileUrl:'https://www.figma.com/design/abc-123/MyFile',channelId:'private-channel-1'});
+  assert.equal((await server.api(base+'/figma-design','POST',{fileUrl:'https://www.figma.com/design/abc-123/MyFile',channelId:'private-channel-1',fileIdentityConfirmed:'true'})).status,400);
+  result=await server.api(base+'/figma-design','POST',{fileUrl:'https://www.figma.com/design/abc-123/MyFile',channelId:'private-channel-1',fileIdentityConfirmed:true});
   assert.equal(result.status,202,JSON.stringify(result.data));assert.equal(result.data.state,'QUEUED');
   assert.equal(JSON.stringify(result.data).includes('private-channel-1'),false);
   const design=await server.api(base+'/figma-design');assert.equal(design.data.figmaDesign.state,'QUEUED');assert.equal(JSON.stringify(design.data).includes('private-channel-1'),false);
+  assert.equal(design.data.figmaDesign.fileConfirmation.source,'OPERATOR_FILE_CONFIRMATION_NOT_INDEPENDENT_ATTESTATION');
+  assert.equal(design.data.figmaDesign.fileConfirmation.projectVersion,design.data.version);
+  assert.equal(design.data.figmaDesign.fileConfirmation.runId,design.data.figmaDesign.runId);
+  assert.equal(design.data.figmaDesign.fileConfirmation.documentKey,'abc-123');
   const job=await server.api(base+'/workflow/jobs/'+result.data.jobId);assert.equal(job.data.options.kind,'figma-design');assert.equal(JSON.stringify(job.data).includes('private-channel-1'),false);
   const projectRead=await server.api(base);assert.equal(JSON.stringify(projectRead.data).includes('private-channel-1'),false);
   await server.api('/api/figma/relay/stop','POST',{});
  }finally{if(server)await server.stop();await rm(dir,{recursive:true,force:true})}
+});
+
+test('Figma worker preserves approval denial in failed state without retrying or exposing credentials',async()=>{
+ const dir=await temp();let server;
+ try{
+  const fakeBun=path.join(dir,'fake-bun.cjs'),fakeCodex=path.join(dir,'fake-codex.cjs');
+  await writeFile(fakeBun,'#!/usr/bin/env node\nrequire("node:net").createServer().listen(Number(process.env.FIGMA_RELAY_PORT),"127.0.0.1");\n',{mode:0o700});
+  await writeFile(fakeCodex,'#!/usr/bin/env node\nconst fs=require("fs"),args=process.argv.slice(2);process.stdin.resume();process.stdin.on("end",()=>fs.writeFileSync(args[args.indexOf("--output-last-message")+1],JSON.stringify({connected:false,documentKey:"",failureCode:"MCP_APPROVAL_REQUIRED"})));\n',{mode:0o700});
+  server=await launch(dir,{port:47000+Math.floor(Math.random()*2000),env:{BUN_BIN:fakeBun,CODEX_BIN:fakeCodex,FIGMA_RELAY_PORT:String(42000+Math.floor(Math.random()*5000))}});
+  const created=await server.api('/api/projects','POST',{title:sampleTitle,brief:sampleBrief});const base=`/api/projects/${created.data.id}`;
+  assert.equal((await server.api(base+'/analyze','POST',{})).status,200);
+  assert.equal((await server.api(base+'/review','POST',{approved:true,notes:'BA Review complete for fixture design.'})).status,200);
+  assert.equal((await server.api(base+'/generate','POST',{})).status,200);
+  assert.equal((await server.api('/api/figma/relay/start','POST',{})).status,200);
+  assert.equal((await server.api(base+'/figma-design','POST',{fileUrl:'https://www.figma.com/design/fixture-file/Test',channelId:'private-fixture-channel'})).status,202);
+  const result=await until(async()=>{const r=await server.api(base+'/figma-design');return r.data.figmaDesign.state==='FAILED'&&r.data.job.state==='DEAD_LETTER'?r.data:null});
+  assert.equal(result.figmaDesign.errorCode,'MCP_APPROVAL_REQUIRED');
+  assert.equal(result.job.last_error,'MCP_APPROVAL_REQUIRED');assert.equal(result.job.attempts,1);
+  assert.equal(result.figmaDesign.draft,null);assert.equal(JSON.stringify(result).includes('private-fixture-channel'),false);
+  await server.api('/api/figma/relay/stop','POST',{});
+ }finally{await server?.stop();await rm(dir,{recursive:true,force:true})}
+});
+
+test('approved Figma design reopens through the API and queues a revision on a fresh channel without changing the prior approval',async()=>{
+ const dir=await temp();let server;
+ try{
+  const id=randomUUID(),previewRun=randomUUID(),analysis=normalizeAnalysis(demoAnalysis(sampleTitle,sampleBrief),sampleBrief),manifestDigest='a'.repeat(64);
+  const p={id,title:sampleTitle,brief:sampleBrief,status:'GENERATED',version:10,analysis,prototype:normalizePrototype(demoPrototype(analysis),analysis),review:{approved:true,customerApproved:false},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+  const start=beginFigmaDesign(p,{documentKey:'fixture-file',channelId:'old-channel',jobId:randomUUID()});
+  const screens=p.prototype.screens.map((s,i)=>({screenId:s.id,nodeId:`2:${i+1}`,verified:true,requirementIds:s.requirementIds}));
+  const files=screens.map(s=>({screenId:s.screenId,path:`04-figma/exports/v10-web/previews/${previewRun}/${s.screenId}.jpg`,contentType:'image/jpeg',sha256:'b'.repeat(64),sizeBytes:4}));
+  const draft=completeFigmaDesign(start,{runId:start.figmaDesign.runId,projectVersion:10,manifestDigest,screens,previewFiles:files});
+  const approved=reviewFigmaDesign(draft,{decision:'APPROVE',notes:'OFFLINE FIXTURE',reviewerId:'fixture-reviewer',projectVersion:10,manifestDigest});
+  approved.version=11;approved.figmaDesign.draft.projectVersion=11;approved.figmaDesign.approved.projectVersion=11;
+  const store=new ProductionStore(dir);store.save(approved);store.db.close();
+  const fakeBun=path.join(dir,'fake-bun.cjs');await writeFile(fakeBun,'#!/usr/bin/env node\nrequire("node:net").createServer().listen(Number(process.env.FIGMA_RELAY_PORT),"127.0.0.1");\n',{mode:0o700});
+  server=await launch(dir,{port:47000+Math.floor(Math.random()*2000),env:{BA_WORKER_ENABLED:'false',BUN_BIN:fakeBun,FIGMA_RELAY_PORT:String(42000+Math.floor(Math.random()*5000))}});
+  const base=`/api/projects/${id}`;
+  const reopened=await server.api(base+'/figma-design/review','POST',{decision:'REQUEST_CHANGES',notes:'Update the approved screen typography',projectVersion:11,manifestDigest});
+  assert.equal(reopened.status,200,JSON.stringify(reopened.data));assert.equal(reopened.data.figmaDesign.state,'REVISION_REQUESTED');assert.equal(reopened.data.figmaDesign.approved.projectVersion,11);
+  assert.equal(reopened.data.figmaDesign.history.length,2);assert.equal((await server.api(base)).data.review.customerApproved,false);
+  assert.equal((await server.api('/api/figma/relay/start','POST',{})).status,200);
+  const queued=await server.api(base+'/figma-design','POST',{revisionNotes:'Update the approved screen typography',channelId:'fresh-private-channel',fileIdentityConfirmed:true});
+  assert.equal(queued.status,202,JSON.stringify(queued.data));assert.equal(queued.data.figmaDesign.approved.projectVersion,11);
+  assert.equal(queued.data.figmaDesign.draft,null);assert.equal(queued.data.figmaDesign.fileConfirmation.documentKey,'fixture-file');assert.equal(JSON.stringify(queued.data).includes('fresh-private-channel'),false);
+  await server.api('/api/figma/relay/stop','POST',{});
+ }finally{await server?.stop();await rm(dir,{recursive:true,force:true})}
 });
 
 test('Figma challenge consume + project commit are atomic, stale version cannot burn nonce',async()=>{
@@ -169,7 +246,14 @@ test('End-to-end Figma read-back nonce, replay protection, human visual QA + aud
   r=await a.api(base+'/workflow/advance','POST',{auto:true});assert.equal(r.data.workflow.state,'WAITING_BA_REVIEW');
   r=await a.api(base+'/review','POST',{approved:true,notes:'Reviewer explicitly approved BA draft handoff.'});assert.equal(r.status,200);
   r=await a.api(base+'/workflow/advance','POST',{auto:true});assert.equal(r.status,200);p=r.data;
-  assert.equal(p.workflow.state,'AWAITING_FIGMA');
+  assert.equal(p.workflow.state,'COMPLETED');
+  // Restore a historical manual-publish fixture to verify backward-compatible APIs.
+  const legacyStore=new ProductionStore(dir);p=legacyStore.get(id);
+  p.workflow.stage='FIGMA_PUBLISH';p.workflow.state='AWAITING_FIGMA';
+  p.workflow.artifactDir=path.join(dir,'legacy-design-pack');p.workflow.design={publication:'NOT_PUBLISHED',manifestDigest:fingerprint(JSON.stringify(buildFigmaHandoff(p).manifest))};
+  await mkdir(p.workflow.artifactDir,{recursive:true});
+  await writeFile(path.join(p.workflow.artifactDir,'figma-manifest.json'),JSON.stringify(buildFigmaHandoff(p).manifest));
+  p.version++;legacyStore.save(p);legacyStore.db.close();
   const key='ba_figma_test',manifest=buildFigmaHandoff(p).manifest,plan=buildPublishPlan(manifest);
   const report={documentKey:key,screens:plan.screens.map((sc,i)=>({screenId:sc.screenId,nodeId:`2:${i+150}`,verified:true})),notes:'mocked MCP report for offline test'};
   const verified=acceptVerifiedFigmaReport(plan,report,{documentKey:key});

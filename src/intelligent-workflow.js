@@ -2,8 +2,9 @@ import {randomUUID} from 'node:crypto';
 import {fingerprint,resolveEvidenceSource} from './revisions.js';
 
 /** Durable single-agent workflow: no remote publish without explicit operator action. */
-export const WORKFLOW_STAGES=['BRAINSTORM','ELICITATION','GAP_ANALYSIS','CLARIFICATION','BA_REVIEW','DELIVERABLES','FIGMA_DESIGN','FIGMA_PUBLISH'];
-const stageIndex=s=>WORKFLOW_STAGES.indexOf(s);
+export const WORKFLOW_STAGES=['BRAINSTORM','ELICITATION','GAP_ANALYSIS','CLARIFICATION','BA_REVIEW','DELIVERABLES'];
+// Legacy IDs remain ordered for invalidating old checkpoints, never scheduled anew.
+const stageIndex=s=>[...WORKFLOW_STAGES,'FIGMA_DESIGN','FIGMA_PUBLISH'].indexOf(s);
 const stamp=()=>new Date().toISOString();
 export function ensureWorkflow(project){
   if(!project.workflow){

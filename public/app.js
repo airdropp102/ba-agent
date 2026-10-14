@@ -1,11 +1,11 @@
-import {completeDrafts,generateQuestionGroups} from './clarification-batch-ui.js';
+import {completeDrafts,generateQuestionGroups,selectRecommendedDrafts,uploadDraftAttachments} from './clarification-batch-ui.js';
 import {candidateAllowed,filterQuestions,renderQuestionForm} from './clarification-ui.js';
 import {watchWorkflowJob,workflowStatus,elapsedLabel} from './workflow-progress.js';
-import {figmaUiState,approvedGalleryScreens,screenPreviewUrl} from './figma-review-ui.js';
+import {figmaUiState,approvedGalleryScreens,screenPreviewUrl,projectToRestore,figmaFailureMessage} from './figma-review-ui.js';
 const $ = id => document.getElementById(id);
 const state={project:null,tab:'workflow',busy:false,docCache:{},workflowPlatform:'web',workflowJob:null,questionPriority:'all',questionStatus:'open',answerDrafts:{},suggestionJobs:{},figmaDesign:null,figmaJob:null,figmaRelay:null,figmaForm:{},figmaPollKey:null};
 const stages=['NEW','ANALYZED','REVIEWED','GENERATED'];
-const wfLabels={BRAINSTORM:'Brainstorming',ELICITATION:'Elicitation',GAP_ANALYSIS:'Gap Analysis',CLARIFICATION:'Clarification',BA_REVIEW:'BA Review',DELIVERABLES:'BRD / SRS / Prototype',FIGMA_DESIGN:'Figma Design Pack',FIGMA_PUBLISH:'Figma publish (thủ công)'};
+const wfLabels={BRAINSTORM:'Brainstorming',ELICITATION:'Elicitation',GAP_ANALYSIS:'Gap Analysis',CLARIFICATION:'Clarification',BA_REVIEW:'BA Review',DELIVERABLES:'BRD / SRS / Prototype'};
 const statusNames={NEW:'Mới tạo',ANALYZED:'Đã phân tích',REVIEWED:'BA đã rà soát',GENERATED:'Đã sinh tài liệu & prototype'};
 let toastTimer;
 function toast(message,isError=false){const e=$('toast');e.textContent=message;e.className='toast visible'+(isError?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.className='toast',4500)}
@@ -48,10 +48,10 @@ async function download(route){
   const anchor=document.createElement('a');anchor.href=url;anchor.download=route.split('/').at(-1);document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 async function work(fn){if(state.busy)return;state.busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);try{await fn()}catch(e){toast(e.message,true)}finally{state.busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false);document.dispatchEvent(new Event('ba-idle'));}}
-async function loadProjects(){const projects=await api('/api/projects');const list=$('project-list');list.replaceChildren();if(!projects.length)list.append(elt('p','Chưa có dự án','empty'));for(const p of projects){const b=elt('button',null,'project-link'+(state.project?.id===p.id?' selected':''));add(b,elt('strong',p.title),elt('small',`${statusNames[p.status]} · v${p.version}${p.demo?' · DEMO':''}`));b.onclick=()=>work(async()=>{const fresh=await api(`/api/projects/${p.id}`);await selectProject(fresh)});list.append(b)}}
+async function loadProjects({restore=false}={}){const projects=await api('/api/projects');const list=$('project-list');list.replaceChildren();if(!projects.length)list.append(elt('p','Chưa có dự án','empty'));for(const p of projects){const b=elt('button',null,'project-link'+(state.project?.id===p.id?' selected':''));add(b,elt('strong',p.title),elt('small',`${statusNames[p.status]} · v${p.version}${p.demo?' · DEMO':''}`));b.onclick=()=>work(async()=>{const fresh=await api(`/api/projects/${p.id}`);await selectProject(fresh)});list.append(b)}if(restore&&!state.project&&projects.length){const project=projectToRestore(projects,localStorage.getItem('ba-studio:lastProjectId'));const fresh=await api(`/api/projects/${project.id}`);await selectProject(fresh,localStorage.getItem('ba-studio:lastProjectTab')||'workflow')}}
 function resetWelcome(){$('welcome-view').hidden=false;$('project-view').hidden=true;$('page-title').textContent='From Brief to Blueprint.';$('page-subtitle').textContent='Biến yêu cầu khách hàng thành đặc tả rõ ràng và prototype có thể kiểm thử.';state.project=null;state.docCache={};loadProjects().catch(e=>toast(e.message,true))}
-async function selectProject(project,tab='workflow'){state.project=project;state.docCache={};state.tab=tab;state.workflowPlatform=project.workflow?.platform||'web';state.figmaDesign=null;state.figmaJob=null;try{const [design,relay]=await Promise.all([api(`/api/projects/${project.id}/figma-design`),api('/api/figma/relay')]);state.figmaDesign=design.figmaDesign;state.figmaJob=design.job;state.figmaRelay=relay}catch{}$('welcome-view').hidden=true;$('project-view').hidden=false;$('page-title').textContent=project.title;$('page-subtitle').textContent='Phiên bản '+project.version+' · Cập nhật '+new Date(project.updatedAt).toLocaleString('vi-VN');$('project-id').textContent='PROJECT / '+project.id.split('-')[0].toUpperCase();$('status-label').textContent=statusNames[project.status]+(project.demo?' • DEMO':'');const index=stages.indexOf(project.status);document.querySelectorAll('.step').forEach((e,i)=>e.classList.toggle('done',i<=index));await render();if(['QUEUED','DESIGNING'].includes(state.figmaDesign?.state))pollFigmaDesign(project.id);loadProjects().catch(e=>toast(e.message,true))}
-function setTab(tab){state.tab=tab;render().catch(e=>toast(e.message,true))}
+async function selectProject(project,tab='workflow'){state.project=project;state.docCache={};state.tab=tab;localStorage.setItem('ba-studio:lastProjectId',project.id);localStorage.setItem('ba-studio:lastProjectTab',tab);state.workflowPlatform=project.workflow?.platform||'web';state.figmaDesign=null;state.figmaJob=null;try{const [design,relay]=await Promise.all([api(`/api/projects/${project.id}/figma-design`),api('/api/figma/relay')]);state.figmaDesign=design.figmaDesign;state.figmaJob=design.job;state.figmaRelay=relay}catch{}$('welcome-view').hidden=true;$('project-view').hidden=false;$('page-title').textContent=project.title;$('page-subtitle').textContent='Phiên bản '+project.version+' · Cập nhật '+new Date(project.updatedAt).toLocaleString('vi-VN');$('project-id').textContent='PROJECT / '+project.id.split('-')[0].toUpperCase();$('status-label').textContent=statusNames[project.status]+(project.demo?' • DEMO':'');const index=stages.indexOf(project.status);document.querySelectorAll('.step').forEach((e,i)=>e.classList.toggle('done',i<=index));await render();if(['QUEUED','DESIGNING'].includes(state.figmaDesign?.state))pollFigmaDesign(project.id);loadProjects().catch(e=>toast(e.message,true))}
+function setTab(tab){state.tab=tab;if(state.project)localStorage.setItem('ba-studio:lastProjectTab',tab);render().catch(e=>toast(e.message,true))}
 async function render(){
   const p=state.project;if(!p)return;
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===state.tab));
@@ -84,7 +84,7 @@ async function progressWorkflow(){
     });
     if(job?.state==='DEAD_LETTER')throw new Error('Workflow job vào dead-letter. Xem audit log và kiểm tra lại trước khi retry.');
     if(job?.state!=='SUCCEEDED')throw new Error('Job vẫn đang chạy trên server. Tải lại dự án để xem trạng thái mới nhất.');
-    toast(state.project.workflow?.state==='AWAITING_FIGMA'?'Design pack sẵn sàng; cần Figma operator publish.':'Workflow đã tới checkpoint hoặc human gate.');
+    toast(state.project.workflow?.state==='COMPLETED'?'Đã tạo tài liệu. Mở Prototype để quản lý thiết kế Figma.':'Workflow đã tới checkpoint hoặc human gate.');
   }catch(e){
     try{await selectProject(await api(`/api/projects/${id}`),'workflow')}catch{}
     throw e;
@@ -116,7 +116,8 @@ async function renderProjectFiles(){
     row.append(elt('span',`${doc.filename} · ${doc.category} · ${Math.ceil(doc.size_bytes/1024)} KB · SHA ${doc.sha256.slice(0,12)}`));
     row.append(button('↓ Đọc / tải',()=>work(async()=>{
       const result=await api(`/api/projects/${p.id}/files/${doc.id}`);
-      const blob=new Blob([result.content],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob);
+      const content=result.encoding==='base64'?Uint8Array.from(atob(result.content),c=>c.charCodeAt(0)):result.content;
+      const blob=new Blob([content],{type:result.encoding==='base64'?'application/octet-stream':'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob);
       const a=document.createElement('a');a.href=url;a.download=result.filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
     }),'quiet'));
     listing.append(row);
@@ -126,12 +127,13 @@ async function renderProjectFiles(){
 
 function renderWorkflow(){
   const p=state.project,w=p.workflow||{stage:'BRAINSTORM',state:'READY',checkpoints:[]},root=$('workflow-content');root.replaceChildren();
-  const head=panel('Intelligent BA Workflow','Chạy theo checkpoint, tự dừng để xác nhận thông tin hoặc BA review; không tự publish Figma.');
+  const finished=w.state==='COMPLETED'||['FIGMA_DESIGN','FIGMA_PUBLISH'].includes(w.stage);
+  const head=panel('Intelligent BA Workflow','Chạy theo checkpoint, tự dừng để xác nhận thông tin hoặc BA review. Quản lý thiết kế Figma tại tab Prototype.');
   const job=state.workflowJob?.projectId===p.id?state.workflowJob:null;
   const status=workflowStatus(p,job);head.classList.add('workflow-dashboard');head.dataset.motion=status.active?'active':'idle';
   const hero=elt('div',null,'workflow-hero');hero.dataset.tone=status.tone;
   const badge=elt('span',status.label,'workflow-status-badge');badge.setAttribute('role','status');
-  const stageText=elt('div');stageText.append(elt('small','BƯỚC HIỆN TẠI'),elt('h3',wfLabels[w.stage]||w.stage));
+  const stageText=elt('div');stageText.append(elt('small','BƯỚC HIỆN TẠI'),elt('h3',finished?'BRD / SRS / Prototype':wfLabels[w.stage]||w.stage));
   hero.append(stageText,badge);head.append(hero);
   const metrics=elt('div',null,'workflow-stats');
   add(metrics,metric((w.checkpoints||[]).length,'Checkpoint đã lưu'),metric(elapsedLabel(status.stageSeconds),'Thời gian bước hiện tại'),metric(elapsedLabel(status.jobSeconds),'Tổng thời gian job'));
@@ -159,7 +161,8 @@ function renderWorkflow(){
   }),'quiet'));}
 
   if(w.lastError)head.append(elt('p',`Lỗi ${w.lastError.stage}: ${w.lastError.message}`,'workflow-note'));
-  if(w.stage!=='FIGMA_PUBLISH')head.append(button(w.state==='FAILED'?'↻ Retry qua durable queue':'✦ Chạy / Tiếp tục qua queue',()=>work(progressWorkflow),'primary'));
+  if(finished)head.append(button('Mở Prototype',()=>setTab('prototype'),'primary'));
+  if(!finished)head.append(button(w.state==='FAILED'?'↻ Retry qua durable queue':'✦ Chạy / Tiếp tục qua queue',()=>work(progressWorkflow),'primary'));
   head.append(button('Xem jobs & audit trail',()=>work(async()=>{
     const [jobs,audit,metrics]=await Promise.all([api(`/api/projects/${p.id}/workflow/jobs`),api(`/api/projects/${p.id}/audit`),api('/api/metrics')]);
     if(!audit.integrity.valid)throw new Error('Audit integrity FAILED at event '+audit.integrity.atSeq);
@@ -228,31 +231,7 @@ function renderWorkflow(){
     const review=panel('Human BA Approval','BA phải xem và phê duyệt kết quả phân tích trước khi sinh tài liệu. Không phải customer approval.');
     review.append(button('Mở biểu mẫu BA Review',()=>setTab('analysis'),'primary'));root.append(review);
   }
-  if(w.design){
-    const pack=panel('Figma Design Pack','Đã tạo bộ bàn giao và kiểm tra độ phủ yêu cầu; chưa chứng minh đã vẽ vào Figma.');
-    pack.append(elt('p',`FR mapping: ${w.design.coverage?.covered}/${w.design.coverage?.requirements} · Figma: ${w.figmaResult?.state||w.design.publication}`));
-    pack.append(elt('pre',`node scripts/figma-design.mjs --project ${p.id} --platform ${w.platform||'web'}
-# Chỉ thực hiện khi đã kết nối Figma MCP:
-node scripts/figma-design.mjs --project ${p.id} --platform ${w.platform||'web'} --publish --channel YOUR_CHANNEL --figma-file YOUR_FILE_KEY`,'preview'));
-    if(w.state==='FIGMA_REPORTED')pack.append(elt('pre',`node scripts/figma-verify.mjs --project ${p.id} --figma-file ${w.figmaResult.documentKey}`,'preview'));
-    if(w.state==='FIGMA_READBACK_REPORTED'){
-      pack.append(elt('p','MCP read-back được operator báo cáo; không phải chứng thực Figma độc lập. BA phải kiểm tra trực quan trên file thật trước khi duyệt.'));
-      const notes=elt('textarea');notes.rows=3;notes.placeholder='Ghi rõ tên màn hình, frame và bằng chứng kiểm tra trực quan (ít nhất 20 ký tự)';
-      pack.append(notes,button('BA xác nhận visual QA (không phải customer sign-off)',()=>work(async()=>{
-        if(!confirm('Bạn đã trực tiếp kiểm tra đúng file và tất cả màn hình Figma?'))return;
-        const next=await api(`/api/projects/${p.id}/workflow/figma/qa`,'POST',{approved:true,notes:notes.value});
-        await selectProject(next,'workflow');toast('Đã ghi nhận BA visual QA vào audit trail.');
-      }),'secondary'));
-    }
-    if(w.stage==='FIGMA_PUBLISH' && !w.figmaResult){
-      const key=elt('input');key.placeholder='Figma file key đã publish';key.maxLength=128;pack.append(key);
-      pack.append(button('Kiểm tra verified registry từ Figma operator',()=>work(async()=>{
-        const next=await api(`/api/projects/${p.id}/workflow/figma/sync`,'POST',{documentKey:key.value.trim()});
-        await selectProject(next,'workflow');toast('Có node report verified trong registry. Vẫn cần kiểm tra trực quan trên Figma.');
-      }),'secondary'));
-    }
-    root.append(pack);
-  }
+
 }
 
 function panel(title,subtitle){const p=elt('section',null,'panel');const h=elt('div',null,'section-heading');const div=elt('div');add(div,elt('h2',title),elt('p',subtitle));h.append(div);p.append(h);return p}
@@ -337,8 +316,21 @@ const q=panel('Câu hỏi cần làm rõ',`${a.clarificationQuestions.filter(x=>
 const drafts=state.answerDrafts[p.id]||(state.answerDrafts[p.id]={});
 const batchActions=elt('div',null,'clarification-toolbar');const saveMany=button('Lưu 0 câu trả lời',()=>work(async()=>{
  const items=completeDrafts(state.project,drafts);if(!items.length)throw Error('Chưa có câu trả lời đủ thông tin.');
- const updated=await api(`/api/projects/${p.id}/answers/batch`,'POST',{answers:items});for(const item of items)delete drafts[item.questionId];
- await selectProject(updated,'analysis');toast(`Đã lưu ${items.length} câu trả lời. Tiếp tục workflow để phân tích lại một lần và BA Review.`);
+ const controls=Array.from(root.querySelectorAll('input, textarea, select'));
+ const disabled=controls.map(control=>control.disabled);controls.forEach(control=>control.disabled=true);
+ try{
+  for(const item of items){const d=drafts[item.questionId];
+   try{item.attachmentIds=await uploadDraftAttachments(d,async file=>{
+    const content=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(Error('Không đọc được file '+file.name));reader.readAsDataURL(file);});
+    return api(`/api/projects/${p.id}/files`,'POST',{category:'approval',filename:file.name,encoding:'base64',content});
+   });}finally{
+    // Details toggles can replace the draft object even while inputs are disabled.
+    drafts[item.questionId]={...drafts[item.questionId],fileUploads:d.fileUploads,attachmentIds:d.attachmentIds||[]};
+   }
+  }
+  const updated=await api(`/api/projects/${p.id}/answers/batch`,'POST',{answers:items});for(const item of items)delete drafts[item.questionId];
+  await selectProject(updated,'analysis');toast(`Đã lưu ${items.length} câu trả lời. Tiếp tục workflow để phân tích lại một lần và BA Review.`);
+ }finally{controls.forEach((control,index)=>control.disabled=disabled[index]);}
 }),'primary');
 const updateSave=()=>{const ready=completeDrafts(state.project,drafts).length;saveMany.dataset.batchSave='true';saveMany.textContent=`Lưu ${ready} câu trả lời`;saveMany.disabled=state.busy||ready===0;suggestAll.disabled=state.busy||pendingIds().length===0;};
 const pendingIds=()=>p.analysis.clarificationQuestions.filter(x=>!['resolved','answered-pending-ba-review'].includes(x.status)).map(x=>x.id);
@@ -347,13 +339,13 @@ const suggestionStatus=elt('p',null,'batch-progress');suggestionStatus.id='batch
 const renderSuggestionProgress=job=>{const current=document.getElementById('batch-suggestion-progress')||suggestionStatus;current.textContent=job?`Gợi ý DRAFT: ${job.done.length}/${job.total} câu · ${job.failed.length} lỗi${job.failed.length?' · Cần thử lại '+job.failed.join(', '):''}${job.active.length?' · Đang xử lý '+job.active.join(', '):' · Đã kết thúc lượt tạo gợi ý'}`:'';};
 const generateAll=async ids=>{
  if(!ids.length)return;const currentId=p.id;
- const result=await generateQuestionGroups(ids,{generate:async questionIds=>{const updated=await api(`/api/projects/${currentId}/recommendations/generate`,'POST',{mode:'business',questionIds});state.project=updated;},onProgress:job=>{state.suggestionJobs[currentId]=job;renderSuggestionProgress(job);}});
- await selectProject(state.project,'analysis');toast(result.failed.length?'Một số câu chưa có gợi ý; bấm Thử lại phần lỗi.':'Gợi ý DRAFT đã sẵn sàng; chưa chọn đáp án nào.',result.failed.length>0);
+ const result=await generateQuestionGroups(ids,{generate:async questionIds=>{const updated=await api(`/api/projects/${currentId}/recommendations/generate`,'POST',{mode:'business',selectionMode:'ba-draft',questionIds});state.project=updated;selectRecommendedDrafts(updated,drafts,questionIds);},onProgress:job=>{state.suggestionJobs[currentId]=job;renderSuggestionProgress(job);}});
+ await selectProject(state.project,'analysis');toast(result.failed.length?'Một số câu chưa có gợi ý; bấm Thử lại phần lỗi.':'Đã chọn sẵn đề xuất DRAFT với thẩm quyền BA. Kiểm tra rồi bấm Lưu câu trả lời.',result.failed.length>0);
 };
 batchActions.append(suggestAll,saveMany);const previousJob=state.suggestionJobs[p.id];
 if(previousJob?.failed.length)batchActions.append(button('Thử lại phần lỗi',()=>work(()=>generateAll(previousJob.failed.filter(id=>pendingIds().includes(id)))),'quiet'));
 document.addEventListener('ba-idle',()=>{if(saveMany.isConnected)updateSave();},{once:true});
-q.append(batchActions,elt('p','Điền nguồn và người trả lời/thẩm quyền để bật nút lưu. Các câu chưa đủ thông tin sẽ được giữ lại.','subtle'),suggestionStatus);renderSuggestionProgress(previousJob);updateSave();
+q.append(batchActions,elt('p','AI chọn sẵn đề xuất với thẩm quyền BA. Bạn có thể đổi phương án, đính kèm file hoặc bấm Lưu câu trả lời để ghi nhận.','subtle'),suggestionStatus);renderSuggestionProgress(previousJob);updateSave();
 const filter=(label,key,choices)=>{const field=elt('label');field.style.display='inline-flex';field.style.gap='8px';field.style.margin='0 16px 16px 0';field.append(elt('span',label));const select=elt('select');for(const [value,text] of choices){const o=elt('option',text);o.value=value;select.append(o);}select.value=state[key];select.onchange=()=>{state[key]=select.value;renderAnalysis();};field.append(select);q.append(field);};
 filter('Ưu tiên','questionPriority',[['all','Tất cả ưu tiên'],['High','High'],['Medium','Medium'],['Low','Low']]);
 filter('Trạng thái','questionStatus',[['open','Chưa trả lời'],['resolved','Đã trả lời'],['all','Tất cả']]);
@@ -363,11 +355,13 @@ for(const item of visible){
  q.append(renderQuestionForm({item,proposal,draft:drafts[item.id]||{},onDraftChange:values=>{drafts[item.id]=values;updateSave();},savedAnswer:[...(p.answers||[])].reverse().find(x=>x.questionId===item.id),elt,button,
   onGenerate:()=>work(async()=>{
    toast('Đang tạo gợi ý DRAFT cho '+item.id+'; chờ Codex trả kết quả.');
-   const updated=await api(`/api/projects/${p.id}/recommendations/generate`,'POST',{mode:'business',questionId:item.id});
+   const updated=await api(`/api/projects/${p.id}/recommendations/generate`,'POST',{mode:'business',selectionMode:'ba-draft',questionId:item.id});
+   selectRecommendedDrafts(updated,drafts,[item.id]);
    await selectProject(updated,'analysis');
    const current=Array.from($('analysis-content').querySelectorAll('details.question')).find(x=>x.querySelector('summary')?.textContent.startsWith(item.id));if(current)current.open=true;
-   toast('Gợi ý DRAFT sẵn sàng; chọn hoặc tự nhập.');
+   toast('Đề xuất DRAFT đã sẵn sàng với thẩm quyền BA; kiểm tra trước khi lưu.');
   }),
+  onDownloadAttachment:async id=>{try{const doc=await api(`/api/projects/${p.id}/files/${id}`);const content=doc.encoding==='base64'?Uint8Array.from(atob(doc.content),c=>c.charCodeAt(0)):doc.content;const url=URL.createObjectURL(new Blob([content],{type:'application/octet-stream'}));const link=elt('a');link.href=url;link.download=doc.filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){toast(e.message,true);}},
   onSave:async payload=>{
    if(state.busy)throw new Error('Đang xử lý yêu cầu khác, vui lòng chờ.');
    state.busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);
@@ -404,34 +398,35 @@ if(p.analysis?.functionalRequirements?.length){
 }
 const pre=elt('pre','Đang tải tài liệu...','preview');container.append(pre);root.append(container);try{const resp=await authenticatedFetch(`/api/projects/${p.id}/export/${type}.md`);pre.textContent=resp.ok?await resp.text():'Chưa đủ điều kiện export.'}catch(e){pre.textContent=e.message}}
 async function readFigmaSetup(){const [relay,design]=await Promise.all([api('/api/figma/relay'),api(`/api/projects/${state.project.id}/figma-design`)]);state.figmaRelay=relay;state.figmaDesign=design.figmaDesign;state.figmaJob=design.job;return design}
-function pollFigmaDesign(projectId){const key=state.figmaDesign?.runId;if(!key||state.figmaPollKey===key)return;state.figmaPollKey=key;(async()=>{while(state.project?.id===projectId&&state.figmaDesign?.runId===key&&['QUEUED','DESIGNING'].includes(state.figmaDesign?.state)){await new Promise(resolve=>setTimeout(resolve,1400));try{const result=await readFigmaSetup();if(state.project?.id!==projectId)return;const fresh=await api(`/api/projects/${projectId}`);state.project=fresh;if(state.tab==='prototype')renderPrototype();if(['WAITING_FOR_REVIEW','FAILED'].includes(result.figmaDesign?.state)){await render();if(result.figmaDesign.state==='WAITING_FOR_REVIEW')toast('Đã vẽ xong. Hãy duyệt từng màn hình Figma.');else toast('Không thể hoàn tất lượt vẽ. Kiểm tra relay/plugin rồi thử lại.',true);break}}catch(e){toast(e.message,true);break}}state.figmaPollKey=null})()}
+function pollFigmaDesign(projectId){const key=state.figmaDesign?.runId;if(!key||state.figmaPollKey===key)return;state.figmaPollKey=key;(async()=>{while(state.project?.id===projectId&&state.figmaDesign?.runId===key&&['QUEUED','DESIGNING'].includes(state.figmaDesign?.state)){await new Promise(resolve=>setTimeout(resolve,1400));try{const result=await readFigmaSetup();if(state.project?.id!==projectId)return;const fresh=await api(`/api/projects/${projectId}`);state.project=fresh;if(state.tab==='prototype')renderPrototype();if(['WAITING_FOR_REVIEW','FAILED'].includes(result.figmaDesign?.state)){await render();if(result.figmaDesign.state==='WAITING_FOR_REVIEW')toast('Đã vẽ xong. Hãy duyệt từng màn hình Figma.');else toast(figmaFailureMessage(result.figmaDesign.errorCode),true);break}}catch(e){toast(e.message,true);break}}state.figmaPollKey=null})()}
 async function startFigmaRelay(){await api('/api/figma/relay/start','POST',{});state.figmaRelay=await api('/api/figma/relay');await render()}
-async function submitFigmaDesign(form){const body=form.revisionNotes?{revisionNotes:form.revisionNotes}:{fileUrl:form.fileUrl,channelId:form.channelId};const queued=await api(`/api/projects/${state.project.id}/figma-design`,'POST',body);state.project=await api(`/api/projects/${state.project.id}`);state.figmaDesign=queued.figmaDesign;state.figmaJob={state:'QUEUED',id:queued.jobId};state.figmaForm={fileUrl:form.fileUrl||state.figmaForm.fileUrl||'',channelId:form.channelId||state.figmaForm.channelId||''};await render();pollFigmaDesign(state.project.id);toast('Đã xếp hàng vẽ. BA Studio đang chờ plugin Figma xác nhận và tạo từng màn hình.')}
+async function submitFigmaDesign(form){const body=form.revisionNotes?{revisionNotes:form.revisionNotes,channelId:form.channelId,fileIdentityConfirmed:form.fileIdentityConfirmed}:{fileUrl:form.fileUrl,channelId:form.channelId,fileIdentityConfirmed:form.fileIdentityConfirmed};const queued=await api(`/api/projects/${state.project.id}/figma-design`,'POST',body);state.project=await api(`/api/projects/${state.project.id}`);state.figmaDesign=queued.figmaDesign;state.figmaJob={state:'QUEUED',id:queued.jobId};state.figmaForm={fileUrl:form.fileUrl||state.figmaForm.fileUrl||'',channelId:form.channelId||state.figmaForm.channelId||''};await render();pollFigmaDesign(state.project.id);toast('Đã xếp hàng vẽ. BA Studio đang chờ plugin Figma xác nhận và tạo từng màn hình.')}
 async function submitFigmaReview(decision,notes){const design=state.figmaDesign;if(!design?.draft)return;await api(`/api/projects/${state.project.id}/figma-design/review`,'POST',{decision,notes,projectVersion:design.draft.projectVersion,manifestDigest:design.manifestDigest});state.project=await api(`/api/projects/${state.project.id}`);const current=await api(`/api/projects/${state.project.id}/figma-design`);state.figmaDesign=current.figmaDesign;state.figmaJob=current.job;await render();toast(decision==='APPROVE'?'Đã duyệt bản design Figma.':'Đã ghi nhận yêu cầu chỉnh sửa; mô hình sẽ tạo lại để duyệt lần nữa.')}
 function renderFigmaPanel(p){const figmaPanel=panel('Vẽ prototype trên Figma','Codex dùng UI UX Pro Max và TalkToFigma MCP. Bạn vẫn cần mở plugin TalkToFigma thủ công.');figmaPanel.classList.add('figma-design-panel');const stateName=figmaUiState({relay:state.figmaRelay,design:state.figmaDesign,job:state.figmaJob});const labels={RELAY_STOPPED:'Socket chưa chạy',RELAY_STARTING:'Socket đang khởi động…',READY:'Sẵn sàng kết nối Figma',QUEUED:'Đang chờ vẽ trên Figma',FAILED:'Lượt vẽ chưa hoàn tất',WAITING_FOR_REVIEW:'Đang chờ bạn duyệt',REVISION_REQUESTED:'Bạn đã yêu cầu chỉnh sửa',APPROVED:'Đã duyệt design Figma'};const status=elt('div',null,'figma-status '+stateName.toLowerCase().replaceAll('_','-'));status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.append(elt('strong',labels[stateName]||'Đang kiểm tra kết nối'));figmaPanel.append(status);
- if(stateName==='RELAY_STOPPED'||stateName==='RELAY_STARTING'||(stateName==='FAILED'&&state.figmaRelay?.state!=='READY')){const start=button('Start socket cursor-talk-to-figma-mcp',()=>work(startFigmaRelay),'primary');start.disabled=state.busy||stateName==='RELAY_STARTING';figmaPanel.append(start)}
+ if(stateName==='RELAY_STOPPED'||stateName==='RELAY_STARTING'||(['FAILED','REVISION_REQUESTED'].includes(stateName)&&state.figmaRelay?.state!=='READY')){const start=button('Start socket cursor-talk-to-figma-mcp',()=>work(startFigmaRelay),'primary');start.disabled=state.busy||stateName==='RELAY_STARTING';figmaPanel.append(start)}
  if(stateName==='RELAY_STOPPED'&&state.figmaRelay?.errorCode)figmaPanel.append(elt('p',`Không khởi chạy được socket (${state.figmaRelay.errorCode}). Kiểm tra Bun và cấu hình local rồi thử lại.`,'inline-error'));
- if(stateName==='FAILED')figmaPanel.append(elt('p','Figma có thể đã nhận một phần frame trước khi lỗi xảy ra. Hãy kiểm tra file Figma trước khi gửi lượt vẽ mới.','inline-error'));
+ if(stateName==='FAILED')figmaPanel.append(elt('p',figmaFailureMessage(state.figmaDesign?.errorCode),'inline-error'));
  if(stateName==='RELAY_STOPPED'||stateName==='RELAY_STARTING'){const step=elt('p','Sau khi socket sẵn sàng, mở Figma và chạy plugin TalkToFigma thủ công; plugin sẽ kết nối tới relay local.','subtle');figmaPanel.append(step)}
  if(stateName==='READY'||stateName==='REVISION_REQUESTED'||stateName==='FAILED'){
   if(stateName==='READY')figmaPanel.append(elt('p','Socket local đã chạy. Hãy mở file Figma và bấm Connect trong plugin TalkToFigma thủ công trước khi gửi yêu cầu vẽ.','figma-manual-step'));
-  const form=elt('form',null,'figma-setup-form');
-  if(stateName==='REVISION_REQUESTED'){const label=elt('label','Ghi chú chỉnh sửa');label.htmlFor='figma-revision-notes';const revision=document.createElement('textarea');revision.id='figma-revision-notes';revision.required=true;revision.maxLength=3000;revision.placeholder='Mô tả màn hình và điểm cần chỉnh sửa';form.onsubmit=e=>{e.preventDefault();work(()=>submitFigmaDesign({revisionNotes:revision.value.trim()}))};const submit=button('Vẽ lại bản design',()=>{},'primary');submit.type='submit';submit.onclick=null;form.append(label,revision,submit)}
+  const form=elt('form',null,'figma-setup-form');const confirmation=elt('label');const confirmInput=document.createElement('input');confirmInput.type='checkbox';confirmInput.required=true;confirmInput.id='figma-file-confirmation';confirmation.append(confirmInput,document.createTextNode(' Tôi xác nhận plugin đang mở đúng file Figma theo link đã nhập.'));
+  if(stateName==='REVISION_REQUESTED'){const channelLabel=elt('label','Channel ID đang kết nối');channelLabel.htmlFor='figma-revision-channel';const revisionChannel=document.createElement('input');revisionChannel.id='figma-revision-channel';revisionChannel.required=true;revisionChannel.autocomplete='off';revisionChannel.value=state.figmaForm.channelId||'';revisionChannel.addEventListener('input',()=>confirmInput.checked=false);form.append(elt('p',`File Figma: https://www.figma.com/design/${state.figmaDesign.documentKey}`,'subtle'),channelLabel,revisionChannel);const label=elt('label','Ghi chú chỉnh sửa');label.htmlFor='figma-revision-notes';const revision=document.createElement('textarea');revision.id='figma-revision-notes';revision.required=true;revision.maxLength=3000;revision.placeholder='Mô tả màn hình và điểm cần chỉnh sửa';form.onsubmit=e=>{e.preventDefault();work(()=>submitFigmaDesign({revisionNotes:revision.value.trim(),channelId:revisionChannel.value.trim(),fileIdentityConfirmed:confirmInput.checked}))};const submit=button('Vẽ lại bản design',()=>{},'primary');submit.type='submit';submit.onclick=null;form.append(label,revision,confirmation,submit)}
   else{
-   const fileLabel=elt('label','Link Figma file');fileLabel.htmlFor='figma-file-url';const file=document.createElement('input');file.id='figma-file-url';file.type='url';file.required=true;file.autocomplete='url';file.value=state.figmaForm.fileUrl||'';file.placeholder='https://www.figma.com/design/...';file.addEventListener('input',()=>state.figmaForm.fileUrl=file.value);form.append(fileLabel,file);
-   const channelRow=elt('div',null,'figma-label-row');const channelLabel=elt('label','Channel ID');channelLabel.htmlFor='figma-channel-id';const help=elt('details',null,'figma-help');const helpToggle=elt('summary','?');helpToggle.setAttribute('aria-label','Channel ID là gì?');const helpText=elt('span','Channel ID là tên kênh hiển thị trong plugin TalkToFigma sau khi plugin kết nối với relay. Hãy nhập đúng ID plugin đang dùng; BA Studio không tự mở plugin.','figma-help-text');helpText.id='figma-channel-help';help.append(helpToggle,helpText);channelRow.append(channelLabel,help);const channel=document.createElement('input');channel.id='figma-channel-id';channel.required=true;channel.autocomplete='off';channel.value=state.figmaForm.channelId||'';channel.placeholder='Ví dụ: abc123';channel.addEventListener('input',()=>state.figmaForm.channelId=channel.value);channel.setAttribute('aria-describedby','figma-channel-help');form.append(channelRow,channel);
-   form.onsubmit=e=>{e.preventDefault();work(()=>submitFigmaDesign({fileUrl:file.value.trim(),channelId:channel.value.trim()}))};const submit=button(stateName==='FAILED'?'Thử vẽ lại':'Tiếp tục',()=>{},'primary');submit.type='submit';submit.onclick=null;form.append(submit);
+   const fileLabel=elt('label','Link Figma file');fileLabel.htmlFor='figma-file-url';const file=document.createElement('input');file.id='figma-file-url';file.type='url';file.required=true;file.autocomplete='url';file.value=state.figmaForm.fileUrl||'';file.placeholder='https://www.figma.com/design/...';file.addEventListener('input',()=>{state.figmaForm.fileUrl=file.value;confirmInput.checked=false});form.append(fileLabel,file);
+   const channelRow=elt('div',null,'figma-label-row');const channelLabel=elt('label','Channel ID');channelLabel.htmlFor='figma-channel-id';const help=elt('details',null,'figma-help');const helpToggle=elt('summary','?');helpToggle.setAttribute('aria-label','Channel ID là gì?');const helpText=elt('span','Channel ID là tên kênh hiển thị trong plugin TalkToFigma sau khi plugin kết nối với relay. Hãy nhập đúng ID plugin đang dùng; BA Studio không tự mở plugin.','figma-help-text');helpText.id='figma-channel-help';help.append(helpToggle,helpText);channelRow.append(channelLabel,help);const channel=document.createElement('input');channel.id='figma-channel-id';channel.required=true;channel.autocomplete='off';channel.value=state.figmaForm.channelId||'';channel.placeholder='Ví dụ: abc123';channel.addEventListener('input',()=>{state.figmaForm.channelId=channel.value;confirmInput.checked=false});channel.setAttribute('aria-describedby','figma-channel-help');form.append(channelRow,channel);
+   form.onsubmit=e=>{e.preventDefault();work(()=>submitFigmaDesign({fileUrl:file.value.trim(),channelId:channel.value.trim(),fileIdentityConfirmed:confirmInput.checked}))};const submit=button(stateName==='FAILED'?'Thử vẽ lại':'Tiếp tục',()=>{},'primary');submit.type='submit';submit.onclick=null;form.append(confirmation,submit);
   }
   figmaPanel.append(form);
  }
  if(stateName==='QUEUED'){const loading=elt('div',null,'figma-loading');loading.setAttribute('aria-busy','true');loading.setAttribute('aria-live','polite');loading.append(elt('span','', 'figma-spinner'),elt('div','Đang chuẩn bị các màn hình trong Figma. Giữ Figma mở và kiểm tra plugin TalkToFigma đã kết nối đúng channel.'));figmaPanel.append(loading)}
+ if(state.figmaDesign?.fileIdentity?.source==='OPERATOR_FILE_CONFIRMATION_NOT_INDEPENDENT_ATTESTATION')figmaPanel.append(elt('p','File Figma đã được người vận hành xác nhận thủ công. Bạn vẫn cần kiểm tra trực tiếp các frame trước khi duyệt design.','subtle'));
  if(stateName==='WAITING_FOR_REVIEW'){
   figmaPanel.append(elt('p','Bản dưới đây là draft để review. Chỉ sau khi bạn duyệt, các màn hình mới xuất hiện trong gallery Prototype.','subtle'));
   const notes=elt('textarea');notes.id='figma-review-notes';notes.maxLength=3000;notes.setAttribute('aria-label','Ghi chú duyệt design Figma');notes.placeholder='Nhận xét BA về chất lượng hình ảnh, bố cục hoặc cách thể hiện';
   for(const screen of state.figmaDesign.screens||[]){const card=elt('article',null,'figma-screen-card');const info=elt('div',null,'figma-screen-info');info.append(elt('span',screen.screenId,'pill'),elt('h3',p.prototype.screens.find(x=>x.id===screen.screenId)?.title||screen.screenId),elt('p','Yêu cầu liên quan: '+screen.requirementIds.join(', '),'trace'));const image=document.createElement('img');image.src=screenPreviewUrl(p.id,screen.screenId);image.alt=`Bản xem trước ${screen.screenId}`;image.loading='lazy';image.className='figma-preview';const link=document.createElement('a');link.className='quiet';link.target='_blank';link.rel='noopener noreferrer';link.href=`https://www.figma.com/design/${encodeURIComponent(state.figmaDesign.documentKey)}?node-id=${encodeURIComponent(screen.nodeId)}`;link.textContent='Mở frame trên Figma';info.append(link);card.append(info,image);figmaPanel.append(card)}
   figmaPanel.append(elt('label','Nhận xét duyệt','figma-review-label'),notes);const actions=elt('div',null,'actions');actions.append(button('Yêu cầu chỉnh sửa',()=>work(()=>submitFigmaReview('REQUEST_CHANGES',notes.value)),'secondary'),button('Duyệt design',()=>work(()=>submitFigmaReview('APPROVE',notes.value)),'primary'));figmaPanel.append(actions);
  }
- const approved=approvedGalleryScreens(state.figmaDesign);if(approved.length){const gallery=elt('section',null,'figma-gallery');gallery.append(elt('h3','Figma design đã duyệt'),elt('p','Các màn hình này đã được BA Studio chấp nhận cho gallery prototype. Trạng thái này không phải customer sign-off.','subtle'));for(const screen of approved){const card=elt('article',null,'figma-screen-card approved');const info=elt('div',null,'figma-screen-info');info.append(elt('span',screen.screenId,'pill good'),elt('h4',p.prototype.screens.find(x=>x.id===screen.screenId)?.title||screen.screenId),elt('p','Yêu cầu liên quan: '+screen.requirementIds.join(', '),'trace'));const image=document.createElement('img');image.src=screenPreviewUrl(p.id,screen.screenId);image.alt=`Màn hình Figma đã duyệt ${screen.screenId}`;image.loading='lazy';image.className='figma-preview';const link=document.createElement('a');link.className='quiet';link.target='_blank';link.rel='noopener noreferrer';link.href=`https://www.figma.com/design/${encodeURIComponent(state.figmaDesign.documentKey)}?node-id=${encodeURIComponent(screen.nodeId)}`;link.textContent='Mở frame trên Figma';card.append(info,image,link);gallery.append(card)}figmaPanel.append(gallery)}
+ const approved=approvedGalleryScreens(state.figmaDesign);if(approved.length){const gallery=elt('section',null,'figma-gallery');gallery.append(elt('h3','Figma design đã duyệt'),elt('p','Các màn hình này đã được BA Studio chấp nhận cho gallery prototype. Trạng thái này không phải customer sign-off.','subtle'));for(const screen of approved){const card=elt('article',null,'figma-screen-card approved');const info=elt('div',null,'figma-screen-info');info.append(elt('span',screen.screenId,'pill good'),elt('h4',p.prototype.screens.find(x=>x.id===screen.screenId)?.title||screen.screenId),elt('p','Yêu cầu liên quan: '+screen.requirementIds.join(', '),'trace'));const image=document.createElement('img');image.src=screenPreviewUrl(p.id,screen.screenId);image.alt=`Màn hình Figma đã duyệt ${screen.screenId}`;image.loading='lazy';image.className='figma-preview';const link=document.createElement('a');link.className='quiet';link.target='_blank';link.rel='noopener noreferrer';link.href=`https://www.figma.com/design/${encodeURIComponent(state.figmaDesign.documentKey)}?node-id=${encodeURIComponent(screen.nodeId)}`;link.textContent='Mở frame trên Figma';card.append(info,image,link);gallery.append(card)}figmaPanel.append(gallery);const editLabel=elt('label','Chỉnh sửa design đã duyệt','figma-review-label');editLabel.htmlFor='figma-approved-edit-notes';const editNotes=elt('textarea');editNotes.id='figma-approved-edit-notes';editNotes.maxLength=3000;editNotes.placeholder='Mô tả màn hình và điểm cần chỉnh sửa';const editActions=elt('div',null,'actions');editActions.append(button('Chỉnh sửa design đã duyệt',()=>work(async()=>{if(!editNotes.value.trim())throw new Error('Vui lòng mô tả nội dung cần chỉnh sửa.');await submitFigmaReview('REQUEST_CHANGES',editNotes.value)}),'secondary'));figmaPanel.append(editLabel,editNotes,elt('p','Yêu cầu chỉnh sửa sẽ tạo bản design mới để duyệt lại. Bản đã duyệt và các frame trước vẫn được lưu trong lịch sử.','subtle'),editActions)}
  figmaPanel.append(elt('p','HTML prototype bên dưới tiếp tục là wireframe click-through riêng. Duyệt design Figma không đồng nghĩa với phê duyệt yêu cầu của khách hàng.','subtle'));return figmaPanel}
 function renderPrototype(){const p=state.project,root=$('prototype-content');root.replaceChildren();if(!p.prototype?.screens?.length){root.append(add(elt('div',null,'empty-block'),elt('h3','Prototype chưa được tạo'),elt('p','Cần BA review và chọn “Tạo BRD · SRS · Prototype” ở tab Phân tích.')));return}const head=panel('Interactive prototype','Click-through wireframe, dữ liệu demo, chưa kết nối backend.');head.querySelector('.section-heading').append(button('↓ Tải prototype.html',()=>work(()=>download(`/api/projects/${p.id}/export/prototype.html`)),'primary'));
 head.append(renderFigmaPanel(p));const layout=elt('div',null,'prototype-layout');const nav=elt('nav',null,'screen-nav'),content=elt('div'),phone=elt('div',null,'phone-frame');add(content,elt('div','','trace'),phone);add(layout,nav,content);head.append(layout);root.append(head);
@@ -444,4 +439,4 @@ $('create-form').onsubmit=e=>{e.preventDefault();work(async()=>{const title=$('t
 $('reanalyze-btn').onclick=()=>work(async()=>{if(!confirm('Phân tích lại sẽ xóa BA Review và prototype của phiên bản hiện tại. Tiếp tục?'))return;await analyze()});
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 api('/api/status').then(s=>{$('mode-indicator').textContent=s.demo?'● DEMO MODE — No API key':'● LIVE AI / '+s.provider+' — '+s.model}).catch(e=>toast(e.message,true));
-loadProjects().catch(e=>toast(e.message,true));
+loadProjects({restore:true}).catch(e=>toast(e.message,true));

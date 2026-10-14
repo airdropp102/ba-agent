@@ -40,7 +40,7 @@ const normalizedOption=(raw,id,techs,mode)=>{
  for(const key of ['title','answer','benefits','tradeoffs','implementation'])if(!text(raw[key]).length)throw bad(`Incomplete proposal ${key}`,422);
  return {id,title:text(raw.title,160),answer:text(raw.answer,1600),benefits:text(raw.benefits,1000),tradeoffs:text(raw.tradeoffs,1000),implementation:text(raw.implementation,1000),stackReferences:ref,feasibility:mode==='business'?'unknown':(['compatible','requires-change','unknown'].includes(raw.feasibility)?raw.feasibility:'unknown')};
 };
-export function createRecommendations(p,rawByQuestion,{provider='demo',mode='technical'}={}){
+export function createRecommendations(p,rawByQuestion,{provider='demo',mode='technical',selectionMode}={}){
  if(!p.analysis)throw bad('Analyze project first',409);
  const techs=availableSolutionReferences(p);
  if(mode!=='business'&&!techs.length)throw bad('Configure current stack or ERP candidate platforms before generating recommendations',409);
@@ -53,13 +53,14 @@ export function createRecommendations(p,rawByQuestion,{provider='demo',mode='tec
   if(!Array.isArray(input.options)||input.options.length<1||input.options.length>3)throw bad('Each question requires 1-3 options',422);
   const options=input.options.map((option,i)=>normalizedOption(option,`OPT-${q.id}-${i+1}`,techs,mode));
   const preferred=Number.isInteger(input.preferredIndex)?input.preferredIndex:-1;
-  rows.push({questionId:q.id,questionDigest:questionDigest(q),analysisDigest:signature,stackDigest:techStackDigest(p),createdAt:new Date().toISOString(),provider,mode,status:'PROPOSED',preferredOptionId:mode!=='business'&&preferred>=0&&preferred<options.length?options[preferred].id:null,options});
+  if(selectionMode==='ba-draft'&&(preferred<0||preferred>=options.length))throw bad('AI draft ranking missing or invalid; retry generation',422);
+  rows.push({questionId:q.id,questionDigest:questionDigest(q),analysisDigest:signature,stackDigest:techStackDigest(p),createdAt:new Date().toISOString(),provider,mode,status:'PROPOSED',preferredOptionId:(mode!=='business'||selectionMode==='ba-draft')&&preferred>=0&&preferred<options.length?options[preferred].id:null,options});
  }
  p.clarificationRecommendations=rows;
  return rows;
 }
 export function demoRecommendations(p){
- if(p.recommendationMode==='business')return (p.analysis?.clarificationQuestions||[]).filter(q=>q.status!=='resolved').map(q=>({questionId:q.id,preferredIndex:-1,options:[{title:'DRAFT demo: xác minh với chủ nghiệp vụ',answer:'Cần chủ nghiệp vụ xác nhận: '+q.question,benefits:'Làm rõ quyết định nghiệp vụ',tradeoffs:'Chưa có câu trả lời được xác nhận',implementation:'Thu thập biên bản hoặc nguồn phản hồi khách hàng',stackReferences:[],feasibility:'unknown'}]}));
+ if(p.recommendationMode==='business')return (p.analysis?.clarificationQuestions||[]).filter(q=>q.status!=='resolved').map(q=>({questionId:q.id,preferredIndex:p.recommendationSelectionMode==='ba-draft'?0:-1,options:[{title:'DRAFT demo: xác minh với chủ nghiệp vụ',answer:'Cần chủ nghiệp vụ xác nhận: '+q.question,benefits:'Làm rõ quyết định nghiệp vụ',tradeoffs:'Chưa có câu trả lời được xác nhận',implementation:'Thu thập biên bản hoặc nguồn phản hồi khách hàng',stackReferences:[],feasibility:'unknown'}]}));
  const techs=availableSolutionReferences(p);
  const erpPlatforms=candidatePlatforms(p);
  if(erpPlatforms.length){
@@ -77,7 +78,7 @@ export function validDecision(p,q){
  const row=[...(p.clarificationDecisions||[])].reverse().find(d=>d.questionId===q.id&&d.status==='APPROVED');
  return row && row.questionDigest===questionDigest(q) && row.stackDigest===techStackDigest(p) && row.briefDigest===fingerprint(p.brief)?row:null;
 }
-export function recordDecision(p,{questionId,optionId,approverRole,sourceReference,rationale,customerRepresentative},actor){
+export function recordDecision(p,{questionId,optionId,approverRole,sourceReference,rationale,customerRepresentative,decisionContext,attachmentIds=[],attachments=[]},actor){
  if(!p.analysis)throw bad('Analyze project first',409);
  const q=p.analysis.clarificationQuestions.find(x=>x.id===questionId);
  const r=p.clarificationRecommendations?.find(x=>x.questionId===questionId);
@@ -87,14 +88,18 @@ export function recordDecision(p,{questionId,optionId,approverRole,sourceReferen
  const option=r.options.find(x=>x.id===optionId);
  if(!option)throw bad('Select an exact option ID from this project',400);
  if(!['ba','customer'].includes(approverRole))throw bad('approverRole must be ba or customer');
+ if(decisionContext==='ba-ui'&&approverRole==='ba'){
+  sourceReference=sourceReference||`BA Studio decision log / ${questionId}`;
+  rationale=rationale||`BA selected draft option ${optionId} in the clarification form; no external confirmation supplied.`;
+ }
  if(typeof sourceReference!=='string'||sourceReference.trim().length<5||sourceReference.length>300)throw bad('Approval evidence reference is required (5-300 chars)');
  if(typeof rationale!=='string'||rationale.trim().length<10||rationale.length>2000)throw bad('Approval rationale required (10-2000 chars)');
  if(approverRole==='customer'&&(typeof customerRepresentative!=='string'||customerRepresentative.trim().length<3||customerRepresentative.length>160))throw bad('Customer representative is required for attested customer approval');
  if(typeof actor!=='string'||actor.length<3)throw bad('Approver identity required',401);
  const at=new Date().toISOString();
- const decision={id:`DEC-${cryptoRandom()}`,questionId,questionText:q.question,questionDigest:questionDigest(q),stackDigest:techStackDigest(p),briefDigest:fingerprint(p.brief),optionId,answer:option.answer,approverRole,actor,customerRepresentative:approverRole==='customer'?customerRepresentative.trim():null,sourceReference:sourceReference.trim(),rationale:rationale.trim(),approvedAt:at,status:'APPROVED',customerApproved:approverRole==='customer',customerBaselineApproved:false};
+ const decision={id:`DEC-${cryptoRandom()}`,questionId,questionText:q.question,questionDigest:questionDigest(q),stackDigest:techStackDigest(p),briefDigest:fingerprint(p.brief),optionId,answer:option.answer,approverRole,actor,customerRepresentative:approverRole==='customer'?customerRepresentative.trim():null,sourceReference:sourceReference.trim(),rationale:rationale.trim(),approvedAt:at,status:'APPROVED',customerApproved:approverRole==='customer',customerBaselineApproved:false,attachmentIds:[...attachmentIds],attachments,decisionContext:decisionContext==='ba-ui'?'ba-ui':'manual'};
  p.clarificationDecisions=[...(p.clarificationDecisions||[]),decision];
- p.answers=[...(p.answers||[]),{questionId,answer:option.answer,sourceId:null,respondent:actor,customerRepresentative:approverRole==='customer'?customerRepresentative.trim():null,sourceReference:sourceReference.trim(),at,approvalType:approverRole==='customer'?'CUSTOMER_APPROVED_PROPOSAL':'BA_APPROVED_TECHNICAL_DECISION',decisionId:decision.id}];
+ p.answers=[...(p.answers||[]),{questionId,answer:option.answer,sourceId:null,respondent:actor,customerRepresentative:approverRole==='customer'?customerRepresentative.trim():null,sourceReference:sourceReference.trim(),at,approvalType:approverRole==='customer'?'CUSTOMER_APPROVED_PROPOSAL':'BA_APPROVED_TECHNICAL_DECISION',decisionId:decision.id,attachmentIds:[...attachmentIds],attachments}];
  q.status='resolved';q.resolutionId=decision.id;
  r.status='APPROVED';r.approvedOptionId=optionId;
  // All unselected proposals are stale as soon as the analysis changes.

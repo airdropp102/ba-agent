@@ -21,3 +21,10 @@ test('human gate stops motion and finished job elapsed duration does not keep in
  const p={workflow:{stage:'CLARIFICATION',state:'WAITING_CLARIFICATION'}};const job={state:'SUCCEEDED',created_at:'2026-10-13T00:00:00Z',updated_at:'2026-10-13T00:02:26Z'};
  const view=workflowStatus(p,job,Date.parse('2026-10-13T02:00:00Z'));assert.equal(view.active,false);assert.equal(view.jobSeconds,146);assert.equal(view.stageSeconds,null);assert.equal(view.label,'Chờ làm rõ yêu cầu');
 });
+
+test('completed and historical manual workflows direct to Prototype without pending publish',()=>{
+ for(const workflow of [{stage:'DELIVERABLES',state:'COMPLETED'},{stage:'FIGMA_DESIGN',state:'READY'},{stage:'FIGMA_PUBLISH',state:'AWAITING_FIGMA'}]){
+  const project={workflow},before=JSON.stringify(project);const status=workflowStatus(project,null);
+  assert.equal(status.label,'Đã tạo tài liệu');assert.equal(status.active,false);assert.equal(JSON.stringify(project),before);
+ }
+});

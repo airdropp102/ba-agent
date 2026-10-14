@@ -26,7 +26,9 @@ After setup, create/open a project in the UI, go to **Phân tích → ERP Soluti
 Dừng server (`Ctrl+C`) và mọi worker dùng cùng `DATA_DIR`, rồi chạy:
 
 ```bash
-kill -TERM 18057
+lsof -t ./data/ba-studio.sqlite | sort -u | while read -r ba_pid; do
+  kill -TERM "$ba_pid"
+done
 npm run project:purge                 # Chỉ xem trước, không xóa
 npm run project:purge -- --confirm    # Xóa toàn bộ project
 ```

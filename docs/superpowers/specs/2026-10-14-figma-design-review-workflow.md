@@ -94,3 +94,11 @@ Do not silently retry a Figma write after a timeout or uncertain partial mutatio
 ## Known limits
 
 The TalkToFigma plugin must still be installed and launched by the user. Static preview export depends on the configured MCP tool returning usable image bytes; failure to export a screen is a hard review blocker. MCP reports and local reviewer identity remain operator-provided evidence, not independent customer attestation. The local relay is intentionally same-host and loopback-only.
+
+## 2026-10-14 live compatibility correction
+
+The installed public TalkToFigma plugin returns current page metadata without a file key. Figma exposes `figma.fileKey` only to private/Figma-owned plugins. The user explicitly supplied the target file link after the new channel was read successfully. Support an explicit, unchecked operator file confirmation in the setup/revision form, bound to project/version/run/file/channel and recorded in audit. This is operator file identity evidence, never independent attestation or customer signoff. Accept this source only when the channel responds and no actual file key is available; reject every observed mismatch, denial or disconnection. Record the identity source alongside the design. All drawing/report/preview coverage and human review gates remain required.
+
+## 2026-10-14 native preview correction
+
+Live export showed the installed plugin always returns PNG, even when the MCP format parameter requests JPEG. Model transcription produced invalid base64. BA Studio therefore retrieves native PNG/JPEG bytes through the pinned read-only relay export protocol, preserving MIME/signature/size/hash checks. Restrict the published review plan to the current prototype screen IDs; supplemental DRAFT placeholders stay outside the approved set. Failed preview recovery is allowed only with matching immutable source requirements, exact current failed version/run and file/channel confirmation, and skip-only registered frames. It records a new audited draft revision and leaves the failed job and source snapshots intact; human design review remains required.

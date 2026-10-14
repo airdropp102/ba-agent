@@ -5,6 +5,7 @@ import {projectDirectory,requireProjectId} from './project-workspaces.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+const imageType=bytes=>bytes.length>=4&&bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff&&bytes.at(-2)===0xff&&bytes.at(-1)===0xd9?'image/jpeg':bytes.length>=33&&bytes.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex'))&&bytes.subarray(-8).equals(Buffer.from('49454e44ae426082','hex'))?'image/png':null;
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status})};
 async function safeDirectory(directory,root){
  const relative=path.relative(path.resolve(root),directory);if(relative.startsWith('..')||path.isAbsolute(relative))fail('Path escapes data directory');
@@ -24,20 +25,20 @@ export class FigmaPreviewStore{
   const relativeDir=`04-figma/exports/v${version}-${platform}/previews/${runId}`,root=projectDirectory(this.dir,id),directory=path.join(root,...relativeDir.split('/'));
   await safeDirectory(directory,this.dir);const seen=new Set(),result=[];
   for(const preview of previews){
-   if(!preview||!/^SCR-\d{3,}$/.test(preview.screenId||'')||seen.has(preview.screenId)||preview.contentType!=='image/jpeg'||typeof preview.base64!=='string')fail('Invalid Figma JPEG preview');
+   if(!preview||!/^SCR-\d{3,}$/.test(preview.screenId||'')||seen.has(preview.screenId)||!['image/jpeg','image/png'].includes(preview.contentType)||typeof preview.base64!=='string')fail('Invalid Figma image preview');
    seen.add(preview.screenId);const bytes=Buffer.from(preview.base64,'base64');
-   if(!bytes.length||bytes.length>5*1024*1024||bytes.toString('base64')!==preview.base64||bytes[0]!==0xff||bytes[1]!==0xd8||bytes[2]!==0xff||bytes.at(-2)!==0xff||bytes.at(-1)!==0xd9)fail('Invalid Figma JPEG preview bytes');
-   const name=`${preview.screenId}.jpg`;await fs.writeFile(path.join(directory,name),bytes,{flag:'wx',mode:0o600});
-   result.push({screenId:preview.screenId,path:`${relativeDir}/${name}`,contentType:'image/jpeg',sha256:digest(bytes),sizeBytes:bytes.length});
+   if(!bytes.length||bytes.length>5*1024*1024||bytes.toString('base64')!==preview.base64||imageType(bytes)!==preview.contentType)fail('Invalid Figma image preview bytes');
+   const name=`${preview.screenId}.${preview.contentType==='image/png'?'png':'jpg'}`;await fs.writeFile(path.join(directory,name),bytes,{flag:'wx',mode:0o600});
+   result.push({screenId:preview.screenId,path:`${relativeDir}/${name}`,contentType:preview.contentType,sha256:digest(bytes),sizeBytes:bytes.length});
   }
   return result;
  }
- async read(projectId,relativePath,{sha256,sizeBytes}={}){
+ async read(projectId,relativePath,{sha256,sizeBytes,contentType}={}){
   const id=requireProjectId(projectId);this.store.get(id);
-  if(typeof relativePath!=='string'||!/^04-figma\/exports\/v\d+-(?:web|mobile)\/previews\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,80}\.jpg$/i.test(relativePath))fail('Invalid Figma preview path');
+  if(typeof relativePath!=='string'||!/^04-figma\/exports\/v\d+-(?:web|mobile)\/previews\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,80}\.(?:jpg|png)$/i.test(relativePath))fail('Invalid Figma preview path');
   const root=projectDirectory(this.dir,id),parts=relativePath.split('/'),directory=path.join(root,...parts.slice(0,-1));await safeDirectory(directory,this.dir);
   const file=path.join(directory,parts.at(-1)),stat=await fs.lstat(file);if(!stat.isFile()||stat.isSymbolicLink())fail('Unsafe Figma preview file',409);
-  const bytes=await fs.readFile(file);if(bytes.length!==sizeBytes||digest(bytes)!==sha256||bytes[0]!==0xff||bytes[1]!==0xd8||bytes[2]!==0xff||bytes.at(-2)!==0xff||bytes.at(-1)!==0xd9)fail('Figma preview checksum mismatch',409);
+  const bytes=await fs.readFile(file);if(bytes.length!==sizeBytes||digest(bytes)!==sha256||imageType(bytes)!==(contentType||'image/jpeg'))fail('Figma preview checksum mismatch',409);
   return bytes;
  }
 }

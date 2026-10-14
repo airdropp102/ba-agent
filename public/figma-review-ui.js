@@ -10,3 +10,17 @@ export function figmaUiState({relay,design,job}={}){
 }
 export function approvedGalleryScreens(design){return design?.state==='APPROVED'&&Array.isArray(design.approved?.screens)?design.approved.screens:[]}
 export function screenPreviewUrl(projectId,screenId){return `/api/projects/${encodeURIComponent(projectId)}/figma-design/previews/${encodeURIComponent(screenId)}`}
+export function figmaFailureMessage(code){
+ const messages={
+  MCP_APPROVAL_REQUIRED:'Codex chưa được cấp quyền gọi TalkToFigma MCP trong phiên chạy nền. Cần phê duyệt quyền tool trước khi thử lại. Lượt này đã dừng trước khi vẽ.',
+  PLUGIN_NOT_CONNECTED:'Chưa kết nối được plugin TalkToFigma. Mở plugin trong file Figma, kết nối socket và kiểm tra Channel ID. Lượt này đã dừng trước khi vẽ.',
+  FILE_KEY_UNAVAILABLE:'Plugin không trả về mã file Figma. Xác nhận plugin đang mở đúng file theo link đã nhập trước khi thử lại. Lượt này đã dừng trước khi vẽ.',
+  DOCUMENT_MISMATCH:'File Figma mà plugin đang mở không khớp với link đã nhập. Mở đúng file và kết nối lại. Lượt này đã dừng trước khi vẽ.',
+  MCP_UNAVAILABLE:'Codex chưa tìm thấy tool TalkToFigma MCP. Kiểm tra cấu hình MCP của Codex trước khi thử lại. Lượt này đã dừng trước khi vẽ.',
+  PREFLIGHT_FAILED:'Không xác minh được kết nối và file Figma. Kiểm tra cấu hình Codex, plugin và Channel ID. Lượt này đã dừng trước khi vẽ.'
+ };
+ return messages[code]||'Figma có thể đã nhận một phần frame trước khi lỗi xảy ra. Hãy kiểm tra file Figma trước khi gửi lượt vẽ mới.';
+}
+export function projectToRestore(projects,lastProjectId){
+ return projects.find(project=>project.id===lastProjectId)||[...projects].sort((a,b)=>Date.parse(b.updatedAt||0)-Date.parse(a.updatedAt||0))[0]||null;
+}

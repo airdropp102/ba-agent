@@ -25,3 +25,40 @@ test('all-question generation groups inputs and reports failed IDs for retry',as
  const groups=[],progress=[];const result=await generateQuestionGroups(['Q1','Q2','Q3','Q4'],{size:2,generate:async ids=>{groups.push(ids);if(ids.includes('Q3'))throw Error('provider failed');},onProgress:r=>progress.push(r.active.length)});
  assert.deepEqual(groups,[['Q1','Q2'],['Q3','Q4']]);assert.deepEqual(result.done,['Q1','Q2']);assert.deepEqual(result.failed,['Q3','Q4']);assert.deepEqual(progress,[2,0,2,0]);
 });
+
+
+test('BA UI batch saves a choice without external evidence and does not claim customer approval',()=>{
+ const p=sample();createRecommendations(p,[{questionId:'Q-001',options:[option],preferredIndex:0}],{mode:'business',selectionMode:'ba-draft'});
+ assert.equal(p.clarificationRecommendations[0].preferredOptionId,'OPT-Q-001-1');
+ applyClarificationBatch(p,[{kind:'option',questionId:'Q-001',optionId:'OPT-Q-001-1',approverRole:'ba',decisionContext:'ba-ui'}],'reviewer');
+ const d=p.clarificationDecisions[0];assert.equal(d.customerApproved,false);assert.equal(d.customerBaselineApproved,false);assert.match(d.sourceReference,/BA Studio/);assert.equal(p.requirementsRefreshPending,true);
+});
+test('BA UI context cannot bypass customer evidence or legacy API evidence',()=>{
+ const p=sample();createRecommendations(p,[{questionId:'Q-001',options:[option]}],{mode:'business'});
+ const choice={kind:'option',questionId:'Q-001',optionId:'OPT-Q-001-1'};
+ assert.throws(()=>applyClarificationBatch(p,[{...choice,approverRole:'customer',decisionContext:'ba-ui',customerRepresentative:'Owner'}],'reviewer'),/evidence/i);
+ assert.throws(()=>applyClarificationBatch(p,[{...choice,approverRole:'ba'}],'reviewer'),/evidence/i);
+});
+test('AI-selected BA draft is ready to save, preserves custom input, and rejects changed proposal',async()=>{
+ const {selectRecommendedDrafts}=await import('../public/clarification-batch-ui.js');
+ const p=sample();createRecommendations(p,[{questionId:'Q-001',options:[option,{...option,title:'Second'}],preferredIndex:1}],{mode:'business',selectionMode:'ba-draft'});
+ const drafts={'Q-002':{mode:'custom',answer:'Keep this'}};selectRecommendedDrafts(p,drafts,['Q-001','Q-002']);
+ assert.equal(drafts['Q-001'].mode,'OPT-Q-001-2');assert.equal(drafts['Q-001'].role,'ba');assert.equal(drafts['Q-002'].answer,'Keep this');assert.equal(completeDrafts(p,drafts).length,1);
+ p.clarificationRecommendations[0].options[1].answer='Changed';assert.equal(completeDrafts(p,drafts).length,0);
+});
+
+test('attachment upload retries reuse successes and drop replaced or removed files',async()=>{
+ const {uploadDraftAttachments}=await import('../public/clarification-batch-ui.js');
+ const first={name:'first.pdf'},second={name:'second.pdf'},replacement={name:'replacement.pdf'},draft={files:[first,second]};
+ const calls=[];let fail=true;
+ const upload=async file=>{calls.push(file.name);if(file===second&&fail)throw Error('network failed');return {id:file.name};};
+ await assert.rejects(()=>uploadDraftAttachments(draft,upload),/network/);fail=false;
+ assert.deepEqual(await uploadDraftAttachments(draft,upload),['first.pdf','second.pdf']);assert.deepEqual(calls,['first.pdf','second.pdf','second.pdf']);
+ draft.files=[replacement];assert.deepEqual(await uploadDraftAttachments(draft,upload),['replacement.pdf']);
+ draft.files=[];assert.deepEqual(await uploadDraftAttachments(draft,upload),[]);
+});
+
+test('BA draft generation rejects missing AI ranking instead of calling the first option best',()=>{
+ const p=sample();assert.throws(()=>createRecommendations(p,[{questionId:'Q-001',preferredIndex:-1,options:[option,{...option,title:'Another'}]}],{mode:'business',selectionMode:'ba-draft'}),/rank/i);
+ assert.equal(p.clarificationRecommendations,undefined);
+});

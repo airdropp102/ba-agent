@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {validateModelOutput} from './model-output.js';
 import {logExecution} from './execution-log.js';
+import {figmaToolConfigArgs} from './figma-codex-policy.js';
 
 export function codexTimeoutMs(value){
  const n=Number(value);return Math.min(Math.max(100,Number.isFinite(n)&&n>0?n:300000),600000);
@@ -24,7 +25,7 @@ for(const signal of ['SIGTERM','SIGINT']){
 }
 
 /** Default calls use an isolated temp directory; explicit operators may supply a reviewed pack directory. */
-export async function runCodexStructured(prompt,schema,{bin=process.env.CODEX_BIN||'codex',timeoutMs=process.env.CODEX_TIMEOUT_MS,heartbeatMs=15000,model=process.env.CODEX_MODEL,workingDirectory,maxOutputBytes=2_000_000}={}) {
+export async function runCodexStructured(prompt,schema,{bin=process.env.CODEX_BIN||'codex',timeoutMs=process.env.CODEX_TIMEOUT_MS,heartbeatMs=15000,model=process.env.CODEX_MODEL,workingDirectory,maxOutputBytes=2_000_000,figmaToolPhase}={}) {
  const ms=codexTimeoutMs(timeoutMs),started=Date.now();
  if(!Number.isSafeInteger(maxOutputBytes)||maxOutputBytes<1||maxOutputBytes>8*1024*1024)throw new Error('Invalid Codex output byte limit (maximum 8 MiB)');
  const dir=await mkdtemp(path.join(os.tmpdir(),'ba-codex-'));
@@ -35,6 +36,7 @@ export async function runCodexStructured(prompt,schema,{bin=process.env.CODEX_BI
   const cwd=workingDirectory===undefined?dir:await realpath(workingDirectory);
   const schemaText=JSON.stringify(schema);await writeFile(schemaFile,schemaText,{mode:0o600});
   const args=['exec','--json','--sandbox','read-only','--skip-git-repo-check','--output-schema',schemaFile,'--output-last-message',outputFile,'-'];
+  args.splice(1,0,...figmaToolConfigArgs(figmaToolPhase));
   if(model){if(!/^[\w.:-]{1,100}$/.test(model))throw new Error('Invalid CODEX_MODEL');args.splice(1,0,'--model',model);}
   proc=spawn(bin,args,{cwd,env:process.env,stdio:['pipe','pipe','pipe'],shell:false,detached:process.platform!=='win32'});active.add(proc);
   progress('CLI_START',{model:model||'codex-cli',promptBytes:Buffer.byteLength(prompt),schemaBytes:Buffer.byteLength(schemaText)});

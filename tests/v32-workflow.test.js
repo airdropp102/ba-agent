@@ -42,7 +42,7 @@ test('workflow waits at clarification with durable checkpoints and no customer s
  }finally{await s.close()}
 });
 
-test('waiver binds to exact blocker set; BA approval required; design pack exported with coverage',async()=>{
+test('waiver binds to exact blocker set; BA approval required; workflow ends at deliverables',async()=>{
  const s=await launch();try{
    const p=await create(s);const res=await start(s,p);assert.equal(res.status,200);
    let cur=res.data;const base=route(p.id), blockers=unresolvedHigh(cur);
@@ -59,27 +59,15 @@ test('waiver binds to exact blocker set; BA approval required; design pack expor
    assert.equal(reviewed.status,200);cur=reviewed.data;
    assert.equal(cur.workflow.stage,'DELIVERABLES');assert.equal(cur.review.approved,true);
    const finished=await start(s,cur);assert.equal(finished.status,200,JSON.stringify(finished.data));cur=finished.data;
-   assert.equal(cur.workflow.state,'AWAITING_FIGMA');assert.equal(cur.workflow.stage,'FIGMA_PUBLISH');
-   assert.ok(cur.workflow.artifactDir);
-   assert.equal(cur.workflow.design.publication,'NOT_PUBLISHED');
-   assert.equal(cur.workflow.design.coverage.requirements,3);
-   assert.equal(cur.workflow.design.coverage.covered,3);
-   for(const filename of ['BRD.md','SRS.md','canonical.json','prototype.html','FIGMA_INSTRUCTIONS.md','figma-publish-plan.json','quality-metrics.json']){
-     assert.ok((await readFile(path.join(cur.workflow.artifactDir,filename),'utf8')).length>30,filename);
-   }
-   const doc=JSON.parse(await readFile(path.join(cur.workflow.artifactDir,'canonical.json')));
-   assert.equal(doc.review.customerApproved,false);
-   const noRegistry=await s.api(base+'/workflow/figma/sync','POST',{documentKey:'test_figma_key'},{'If-Match':String(cur.version)});
-   assert.equal(noRegistry.status,409);
-   const handoff=buildFigmaHandoff(cur),plan=buildPublishPlan(handoff.manifest);
-   const report={documentKey:'test_figma_key',screens:plan.screens.map((x,i)=>({screenId:x.screenId,nodeId:`3:${100+i}`,verified:true})),notes:'verified by mocked operator'};
-   const verified=acceptVerifiedFigmaReport(plan,report,{documentKey:'test_figma_key'});
-   const rdir=path.join(s.dir,'.figma-registry',p.id);await mkdir(rdir,{recursive:true});
-   await writeFile(path.join(rdir,'test_figma_key.json'),JSON.stringify(verified.registry));
-   const synced=await s.api(base+'/workflow/figma/sync','POST',{documentKey:'test_figma_key'},{'If-Match':String(cur.version)});
-   assert.equal(synced.status,200,JSON.stringify(synced.data));assert.equal(synced.data.workflow.state,'FIGMA_REPORTED');
-   assert.equal(synced.data.workflow.figmaResult.state,'REPORTED_VERIFIED_PENDING_VISUAL_QA');
-   const rerun=await start(s,synced.data);assert.equal(rerun.status,200);assert.equal(rerun.data.workflow.state,'FIGMA_REPORTED');
+   assert.equal(cur.workflow.state,'COMPLETED');assert.equal(cur.workflow.stage,'DELIVERABLES');
+   assert.ok(cur.prototype.screens.length);
+   assert.equal(cur.workflow.artifactDir,null);
+   assert.equal(cur.workflow.design,undefined);
+   assert.ok(!cur.workflow.checkpoints.some(c=>['FIGMA_DESIGN','FIGMA_PUBLISH'].includes(c.stage)));
+   const repeated=await start(s,cur);assert.equal(repeated.status,200);assert.equal(repeated.data.version,cur.version);
+   const queued=await s.api(base+'/workflow/jobs','POST',{auto:true});assert.equal(queued.status,409);
+   assert.equal(buildFigmaHandoff(cur).canonical.review.customerApproved,false);
+
  }finally{await s.close()}
 });
 

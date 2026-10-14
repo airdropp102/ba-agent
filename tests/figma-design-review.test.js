@@ -59,3 +59,20 @@ test('revision request preserves review history and stale project or manifest is
  assert.equal(requested.figmaDesign.history[0].decision,'REQUEST_CHANGES');
  assert.equal(requested.figmaDesign.channelId,'channel');
 });
+
+test('approved design can be reopened for changes while preserving approval history and requiring a fresh review',()=>{
+ const original=project(),started=beginFigmaDesign(original,{documentKey:'abc-123',channelId:'channel',jobId:'job-1'});
+ const draft=completeFigmaDesign(started,{runId:'job-1',projectVersion:7,manifestDigest:digest,screens:reports(),previewFiles:previews()});
+ const approved=reviewFigmaDesign(draft,{decision:'APPROVE',notes:'Approved fixture',reviewerId:'reviewer-1',projectVersion:7,manifestDigest:digest});
+ const input={decision:'REQUEST_CHANGES',notes:'Update the approved screen spacing',reviewerId:'reviewer-1',projectVersion:7,manifestDigest:digest};
+ const reopened=reviewFigmaDesign(approved,input);
+ assert.equal(reopened.figmaDesign.state,'REVISION_REQUESTED');assert.deepEqual(reopened.figmaDesign.approved,approved.figmaDesign.approved);
+ assert.deepEqual(reopened.figmaDesign.history.map(item=>item.decision),['APPROVE','REQUEST_CHANGES']);
+ assert.equal(approved.figmaDesign.state,'APPROVED');assert.deepEqual(reopened.review,original.review);
+ assert.throws(()=>reviewFigmaDesign(approved,{...input,notes:''}),/feedback/);
+ assert.throws(()=>reviewFigmaDesign(approved,{...input,decision:'APPROVE'}),/waiting for review/);
+ assert.throws(()=>reviewFigmaDesign(approved,{...input,projectVersion:6}),/stale|version/i);
+ const next=beginFigmaDesign(reopened,{documentKey:'abc-123',channelId:'new-channel',jobId:'job-2'});
+ assert.equal(next.figmaDesign.state,'DESIGNING');assert.equal(next.figmaDesign.draft,null);
+ assert.deepEqual(next.figmaDesign.approved,approved.figmaDesign.approved);
+});

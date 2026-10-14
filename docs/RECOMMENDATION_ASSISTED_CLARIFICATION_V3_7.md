@@ -62,3 +62,32 @@ Project-scoped in-memory drafts survive filtering, collapsing questions and re-r
 `POST /api/projects/:id/answers/batch` accepts `{ "answers": [...] }`, with 1–100 unique question IDs. Each item has `kind:"custom"` with answer/respondent/sourceReference, or `kind:"option"` with exact optionId/approverRole/sourceReference/rationale and customerRepresentative when applicable. All entries validate against one current project snapshot before committing. Custom answers remain customer-attributed text; BA choices remain attested decisions, not customer sign-off. Mixed batches bind newly authorized decisions to the resulting brief and invalidate previous review and dependent artifacts. Existing manual endpoints are unchanged.
 
 Save does not call AI. It sets `requirementsRefreshPending=true`; continue the normal workflow or re-analyze once before BA Review/export. Invalid batches leave the persisted project unchanged. Optimistic versioning and lease guards remain authoritative. Workflow cards localize status and distinguish current-step and total-job elapsed time; active animation honors reduced-motion and stops at human gates.
+
+
+## BA draft selection and optional attachments (2026-10-14)
+
+The explicitly invoked UI suggestion actions now send `selectionMode:"ba-draft"`.
+AI ranks a valid exact option ID; the browser selects that draft and defaults authority
+to BA. Missing/invalid ranking rejects generation for retry rather than calling the
+first alternative best. Existing custom answers and manual choices are preserved.
+Generation never commits approval; the BA still presses **Lưu câu trả lời**.
+Default/manual generation without this flag retains prior behavior.
+
+The form removes source-reference and rationale inputs. An explicit BA UI decision
+(`decisionContext:"ba-ui"`, `approverRole:"ba"`) may omit those fields: the server
+records an internal BA Studio decision-log reference and a description of the BA
+selection, not fabricated external evidence or customer consent. Manual approval
+requests retain their previous evidence/rationale requirements. Customer authority
+requires a named representative and attached evidence when using this simplified UI.
+Custom customer responses retain respondent attribution and record their form origin;
+that origin is not independently verified customer evidence or baseline sign-off.
+All decisions still invalidate review and require re-analysis before downstream work.
+
+Optional attachments support PDF, DOC/DOCX, XLS/XLSX, PNG/JPG/JPEG/WEBP and existing
+text extensions. Up to 10 files per answer, 5 MiB per file, are sent to the existing
+project files endpoint with `encoding:"base64"`. Legacy plaintext uploads retain
+300 KB limits and UTF-8 read responses. Binary reads return base64 plus encoding;
+the UI decodes bytes before download. Files are immutable project-scoped documents,
+checksummed and referenced by UUID in answers/decisions. Attaching a file does not
+verify its contents or authorize sending it to AI. Upload retries reuse successes
+for current selected files; removed files are not included in the saved answer.

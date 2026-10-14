@@ -6,6 +6,31 @@ import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {runCodexStructured} from '../src/codex-provider.js';
 
 const schema={type:'object',properties:{screens:{type:'array'}},required:['screens'],additionalProperties:false};
+test('Figma tool approval overrides stay scoped to each phase and preserve the shell sandbox',async()=>{
+ const {FIGMA_APPROVED_TOOLS}=await import('../src/figma-codex-policy.js');
+ const {readFile}=await import('node:fs/promises');
+ const tmp=await mkdtemp(path.join(os.tmpdir(),'ba-codex-figma-policy-'));
+ try{
+  const bin=path.join(tmp,'mock-codex'),argsFile=path.join(tmp,'args.json');
+  await writeFile(bin,`#!/usr/bin/env node
+const fs=require('fs'),args=process.argv.slice(2);fs.writeFileSync(${JSON.stringify(argsFile)},JSON.stringify(args));process.stdin.resume();process.stdin.on('end',()=>fs.writeFileSync(args[args.indexOf('--output-last-message')+1],JSON.stringify({screens:[]})));
+`,{mode:0o700});
+  for(const phase of [undefined,'preflight','design','preview']){
+   await runCodexStructured('Synthetic fixture',schema,{bin,figmaToolPhase:phase,timeoutMs:5000});
+   const args=JSON.parse(await readFile(argsFile,'utf8'));assert.equal(args[args.indexOf('--sandbox')+1],'read-only');
+   const configs=args.filter((arg,i)=>args[i-1]==='-c');
+   if(phase===undefined){assert.deepEqual(configs,[]);continue;}
+   const enabled=JSON.parse(configs.find(x=>x.startsWith('mcp_servers.TalkToFigma.enabled_tools=')).split('=')[1]);
+   const expected=phase==='preflight'?['join_channel','get_document_info','get_selection']:phase==='preview'?['join_channel','get_document_info','get_node_info','export_node_as_image']:[...FIGMA_APPROVED_TOOLS];
+   assert.deepEqual(enabled,expected);assert.equal(FIGMA_APPROVED_TOOLS.length,27);
+   assert.ok(enabled.every(tool=>!tool.startsWith('delete')));
+   assert.equal(configs.length,1+expected.length);
+   for(const tool of expected)assert.ok(configs.includes(`mcp_servers.TalkToFigma.tools.${tool}.approval_mode="approve"`));
+  }
+  await assert.rejects(runCodexStructured('Synthetic fixture',schema,{bin,figmaToolPhase:'unknown',timeoutMs:5000}),/Invalid Figma tool phase/);
+ }finally{await rm(tmp,{recursive:true,force:true})}
+});
+
 test('Codex provider safely invokes non-interactive CLI and parses JSON without API key',async()=>{
   const tmp=await mkdtemp(path.join(os.tmpdir(),'ba-codex-test-'));
   try{

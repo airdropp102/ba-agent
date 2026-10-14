@@ -17,6 +17,11 @@ test('Figma JPEG previews are project scoped, immutable and checksum verified',a
   const [entry]=await previews.write(projectId,{version:2,platform:'web',runId,previews:[{screenId:'SCR-001',contentType:'image/jpeg',base64:jpg}]});
   assert.match(entry.path,new RegExp(`04-figma/exports/v2-web/previews/${runId}/SCR-001\\.jpg`));
   assert.deepEqual(await previews.read(projectId,entry.path,entry),Buffer.from(jpg,'base64'));
+  const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV1sAAAAASUVORK5CYII=';
+  const [pngEntry]=await previews.write(projectId,{version:2,platform:'web',runId,previews:[{screenId:'SCR-002',contentType:'image/png',base64:png}]});
+  assert.ok(pngEntry.path.endsWith('.png'));assert.equal(pngEntry.contentType,'image/png');
+  assert.deepEqual(await previews.read(projectId,pngEntry.path,pngEntry),Buffer.from(png,'base64'));
+  await assert.rejects(()=>previews.read(projectId,pngEntry.path,{...pngEntry,contentType:'image/jpeg'}),/checksum/);
   await assert.rejects(()=>previews.read(randomUUID(),entry.path,entry),/not found|không tìm thấy/i);
   await assert.rejects(()=>previews.read(projectId,entry.path.replace('v2-web','v3-web'),entry),/ENOENT/i);
   await writeFile(path.join(projectDirectory(dataDir,projectId),...entry.path.split('/')),'tampered');

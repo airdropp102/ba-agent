@@ -21,7 +21,7 @@ export function applyClarificationBatch(p,items,actor){
    if(answer.length<3||answer.length>12000||respondent.length<2||respondent.length>160||sourceReference.length<3||sourceReference.length>300)throw bad('Invalid answer, respondent or source reference');
    const at=new Date().toISOString(),existing=new Set(next.sources.map(s=>s.id));let number=next.sources.length+1;while(existing.has(`SRC-${String(number).padStart(3,'0')}`))number++;
    const source={id:`SRC-${String(number).padStart(3,'0')}`,type:'customer-response',text:answer,respondent,sourceReference,questionId:entry.questionId,at};
-   next.sources.push(source);next.answers.push({questionId:entry.questionId,...values,sourceId:source.id,at});
+   next.sources.push(source);next.answers.push({questionId:entry.questionId,...values,sourceId:source.id,at,attachmentIds:entry.attachmentIds||[],attachments:entry.attachments||[]});
    next.brief+=`\n\n=== CUSTOMER RESPONSE TO ${entry.questionId} (source: ${sourceReference}; respondent: ${respondent}) ===\n${answer}`;
   }else throw bad('Invalid answer kind');
  }

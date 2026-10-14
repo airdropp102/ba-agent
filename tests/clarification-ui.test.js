@@ -29,3 +29,8 @@ test('sourced answers pending BA review appear under answered without becoming r
  assert.deepEqual(filterQuestions(qs,'all','resolved').map(q=>q.id),['Q-001']);
  assert.equal(qs[0].status,'answered-pending-ba-review');
 });
+
+test('BA form payload needs neither reference nor rationale and keeps optional attachment IDs',()=>{
+ const v={questionId:'Q-001',mode:'OPT-Q-001-1',role:'ba',attachmentIds:['11111111-1111-4111-8111-111111111111']};
+ const body=answerPayload(v).body;assert.equal(body.decisionContext,'ba-ui');assert.equal(body.approverRole,'ba');assert.deepEqual(body.attachmentIds,v.attachmentIds);assert.equal(body.sourceReference,undefined);
+});

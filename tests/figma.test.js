@@ -95,7 +95,7 @@ for(const f of ['BRD.md','SRS.md','canonical.json','figma-manifest.json'])if(!fs
 let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{
 if(!input.includes('READ-ONLY CONNECTION PREFLIGHT')&&!input.includes('CREATE DESIGN FRAMES')&&!input.includes('EXPORT JPEG PREVIEW'))process.exit(73);
 fs.appendFileSync(${JSON.stringify(marker)},'called\\n');const output=a[a.indexOf('--output-last-message')+1];
-if(input.includes('READ-ONLY CONNECTION PREFLIGHT'))return fs.writeFileSync(output,JSON.stringify({connected:true,documentKey:'fixture-file'}));
+if(input.includes('READ-ONLY CONNECTION PREFLIGHT'))return fs.writeFileSync(output,JSON.stringify({connected:true,documentKey:'fixture-file',failureCode:''}));
 if(input.includes('CREATE DESIGN FRAMES')){if(!input.includes('NEVER alter or delete'))process.exit(74);const plan=JSON.parse(fs.readFileSync('figma-publish-plan.json','utf8'));return fs.writeFileSync(output,JSON.stringify({documentKey:'fixture-file',screens:plan.screens.filter(s=>s.action==='create').map((s,i)=>({screenId:s.screenId,nodeId:'1:'+String(i+1),verified:true})),notes:'OFFLINE MOCK ONLY'}));}
 const screenId=input.match(/screen (SCR-[A-Z0-9-]+)/)?.[1];return fs.writeFileSync(output,JSON.stringify({screenId,contentType:'image/jpeg',base64:'\\/9j\\/4AIA\\/9k='}));});
 `,{mode:0o700});
@@ -119,7 +119,7 @@ test('publish rejects wrong-file report without persisting report or registry an
   const p=fixture(),dataDir=path.join(temp,'data'),bin=path.join(temp,'wrong-file-cli');await mkdir(dataDir);await writeFile(path.join(dataDir,p.id+'.json'),JSON.stringify(p));
   await writeFile(path.join(temp,'codex'),'#!/usr/bin/env node\nprocess.exit(91);\n',{mode:0o700});
   await writeFile(bin,`#!/usr/bin/env node
-const fs=require('fs'),a=process.argv.slice(2);process.stdin.resume();process.stdin.on('end',()=>fs.writeFileSync(a[a.indexOf('--output-last-message')+1],JSON.stringify({connected:false,documentKey:'wrong-file'})));
+const fs=require('fs'),a=process.argv.slice(2);process.stdin.resume();process.stdin.on('end',()=>fs.writeFileSync(a[a.indexOf('--output-last-message')+1],JSON.stringify({connected:false,documentKey:'wrong-file',failureCode:'DOCUMENT_MISMATCH'})));
 `,{mode:0o700});
   const env={...process.env,PATH:temp+path.delimiter+process.env.PATH,CODEX_BIN:bin,CODEX_MODEL:'configured-test-model'};
   const args=['scripts/figma-design.mjs','--project',p.id,'--data-dir',dataDir];
@@ -135,7 +135,7 @@ test('configured publish timeout and changed project version never commit a repo
   const temp=await mkdtemp(path.join(os.tmpdir(),'ba-figma-'+mode+'-'));
   try{
    const p=fixture(),dataDir=path.join(temp,'data'),bin=path.join(temp,'fixture-cli');await mkdir(dataDir);await writeFile(path.join(dataDir,p.id+'.json'),JSON.stringify(p));await writeFile(path.join(temp,'codex'),'#!/usr/bin/env node\nprocess.exit(91);\n',{mode:0o700});
-   const body=mode==='timeout'?'process.stdin.resume();setInterval(()=>{},10000);':`const fs=require('fs'),a=process.argv.slice(2);let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',async()=>{const output=a[a.indexOf('--output-last-message')+1];if(input.includes('READ-ONLY CONNECTION PREFLIGHT'))return fs.writeFileSync(output,JSON.stringify({connected:true,documentKey:'fixture-file'}));if(input.includes('EXPORT JPEG PREVIEW')){const screenId=input.match(/screen (SCR-[A-Z0-9-]+)/)?.[1];return fs.writeFileSync(output,JSON.stringify({screenId,contentType:'image/jpeg',base64:'\/9j\/4AIA\/9k='}));}const plan=JSON.parse(fs.readFileSync('figma-publish-plan.json','utf8'));const {ProductionStore}=await import(${JSON.stringify(new URL('../src/production-store.js',import.meta.url).href)});const store=new ProductionStore(${JSON.stringify(dataDir)});const p=store.get(plan.projectId);if(${JSON.stringify(mode)}==='stale'){p.version++;store.save(p);}else{const path=require('path'),registryDir=path.join(${JSON.stringify(dataDir)},'projects',p.id,'04-figma','registry');fs.mkdirSync(registryDir,{recursive:true});fs.writeFileSync(path.join(registryDir,'fixture-file.json'),JSON.stringify({schemaVersion:'ba.figma.registry.v1',documentKey:'fixture-file',projectId:p.id,screens:{},notes:'OFFLINE CONCURRENT REGISTRY'}));}store.db.close();fs.writeFileSync(output,JSON.stringify({documentKey:'fixture-file',screens:plan.screens.map((s,i)=>({screenId:s.screenId,nodeId:'1:'+String(i+1),verified:true})),notes:'OFFLINE MOCK ONLY'}));});`;
+   const body=mode==='timeout'?'process.stdin.resume();setInterval(()=>{},10000);':`const fs=require('fs'),a=process.argv.slice(2);let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',async()=>{const output=a[a.indexOf('--output-last-message')+1];if(input.includes('READ-ONLY CONNECTION PREFLIGHT'))return fs.writeFileSync(output,JSON.stringify({connected:true,documentKey:'fixture-file',failureCode:''}));if(input.includes('EXPORT JPEG PREVIEW')){const screenId=input.match(/screen (SCR-[A-Z0-9-]+)/)?.[1];return fs.writeFileSync(output,JSON.stringify({screenId,contentType:'image/jpeg',base64:'\/9j\/4AIA\/9k='}));}const plan=JSON.parse(fs.readFileSync('figma-publish-plan.json','utf8'));const {ProductionStore}=await import(${JSON.stringify(new URL('../src/production-store.js',import.meta.url).href)});const store=new ProductionStore(${JSON.stringify(dataDir)});const p=store.get(plan.projectId);if(${JSON.stringify(mode)}==='stale'){p.version++;store.save(p);}else{const path=require('path'),registryDir=path.join(${JSON.stringify(dataDir)},'projects',p.id,'04-figma','registry');fs.mkdirSync(registryDir,{recursive:true});fs.writeFileSync(path.join(registryDir,'fixture-file.json'),JSON.stringify({schemaVersion:'ba.figma.registry.v1',documentKey:'fixture-file',projectId:p.id,screens:{},notes:'OFFLINE CONCURRENT REGISTRY'}));}store.db.close();fs.writeFileSync(output,JSON.stringify({documentKey:'fixture-file',screens:plan.screens.map((s,i)=>({screenId:s.screenId,nodeId:'1:'+String(i+1),verified:true})),notes:'OFFLINE MOCK ONLY'}));});`;
    await writeFile(bin,'#!/usr/bin/env node\n'+body,{mode:0o700});
    const env={...process.env,PATH:temp+path.delimiter+process.env.PATH,CODEX_BIN:bin,CODEX_MODEL:'configured-test-model',CODEX_FIGMA_TIMEOUT_MS:mode==='timeout'?'1000':'5000',BA_LOG_PROGRESS:'true'};
    const result=spawnSync(process.execPath,['scripts/figma-design.mjs','--project',p.id,'--data-dir',dataDir,'--publish','--channel','fixture-channel','--figma-file','fixture-file'],{env,encoding:'utf8',timeout:10000});
@@ -156,6 +156,38 @@ test('shared Figma publisher checks channel and file identity before writing fra
  assert.equal(calls.length,1,'only the read-only preflight is allowed before identity is checked');
 });
 
+test('publisher reports approval denial and stops before creating frames',async()=>{
+ const p=fixture(),calls=[];
+ await assert.rejects(publishFigmaDesign({project:p,designPack:buildFigmaHandoff(p),documentKey:'expected-file',channelId:'fixture-channel',runner:async(prompt)=>{
+  calls.push(prompt);return {connected:false,documentKey:'',failureCode:'MCP_APPROVAL_REQUIRED'};
+ }}),error=>error.code==='MCP_APPROVAL_REQUIRED');
+ assert.equal(calls.length,1,'approval denial must not trigger drawing or a fallback route');
+});
+
+test('operator file confirmation only resolves a connected plugin with an unavailable file key, in the exact run scope',async()=>{
+ const {recordFigmaFileConfirmation}=await import('../src/figma-design-review.js');
+ const p=fixture(),designPack=buildFigmaHandoff(p),runId='fixture-run',documentKey='expected-file',channelId='fixture-channel';
+ const confirmation=recordFigmaFileConfirmation(p,{confirmed:true,runId,documentKey,channelId,projectVersion:p.version,confirmedBy:'fixture-operator'});
+ const jpeg=Buffer.from([0xff,0xd8,0xff,0xe0,0x00,0x02,0xff,0xd9]).toString('base64');
+ for(const [preflight,fileConfirmation,expectedCode] of [
+  [{connected:true,documentKey:'',failureCode:'FILE_KEY_UNAVAILABLE'},null,'FILE_KEY_UNAVAILABLE'],
+  [{connected:true,documentKey:'',failureCode:'FILE_KEY_UNAVAILABLE'},{...confirmation,runId:'other-run'},'FILE_KEY_UNAVAILABLE'],
+  [{connected:true,documentKey:'',failureCode:'FILE_KEY_UNAVAILABLE'},{...confirmation,projectVersion:p.version+1},'FILE_KEY_UNAVAILABLE'],
+  [{connected:true,documentKey:'',failureCode:'FILE_KEY_UNAVAILABLE'},{...confirmation,channelDigest:'0'.repeat(64)},'FILE_KEY_UNAVAILABLE'],
+  [{connected:false,documentKey:'',failureCode:'PLUGIN_NOT_CONNECTED'},confirmation,'PLUGIN_NOT_CONNECTED'],
+  [{connected:true,documentKey:'wrong-file',failureCode:'DOCUMENT_MISMATCH'},confirmation,'DOCUMENT_MISMATCH'],
+  [{connected:false,documentKey:'',failureCode:'MCP_APPROVAL_REQUIRED'},confirmation,'MCP_APPROVAL_REQUIRED']
+ ]){
+  let calls=0;await assert.rejects(publishFigmaDesign({project:p,designPack,runId,documentKey,channelId,fileConfirmation,runner:async()=>{calls++;return preflight}}),e=>e.code===expectedCode);assert.equal(calls,1);
+ }
+ const result=await publishFigmaDesign({project:p,designPack,runId,documentKey,channelId,fileConfirmation:confirmation,runner:async(prompt)=>{
+  if(prompt.includes('READ-ONLY CONNECTION PREFLIGHT'))return {connected:true,documentKey:'',failureCode:'FILE_KEY_UNAVAILABLE'};
+  if(prompt.includes('CREATE DESIGN FRAMES')){assert.match(prompt,/human operator explicitly confirmed/);return {documentKey,screens:designPack.manifest.screens.map((s,i)=>({screenId:s.id,nodeId:`31:${i+1}`,verified:true})),notes:'OFFLINE FIXTURE'};}
+  return {screenId:prompt.match(/screen (SCR-[A-Z0-9-]+)/)[1],contentType:'image/jpeg',base64:jpeg};
+ }});
+ assert.deepEqual(result.fileIdentity,confirmation);assert.deepEqual(p.review,fixture().review);
+});
+
 test('publisher verifies every planned screen and exports one bounded JPEG at a time',async()=>{
  const p=fixture(),designPack=buildFigmaHandoff(p),calls=[],jpeg=Buffer.from([0xff,0xd8,0xff,0xe0,0x00,0x02,0xff,0xd9]).toString('base64');
  const result=await publishFigmaDesign({project:p,designPack,documentKey:'expected-file',channelId:'fixture-channel',outputDirectory:'/tmp',runner:async(prompt,_schema,options)=>{
@@ -171,6 +203,18 @@ test('publisher verifies every planned screen and exports one bounded JPEG at a 
  assert.equal(exports.length,result.screens.length);
  assert.ok(exports.every(c=>c.options.maxOutputBytes===8*1024*1024));
  assert.deepEqual(calls.filter(c=>c.prompt.includes('EXPORT JPEG PREVIEW')).map(c=>c.prompt.match(/screen (SCR-[A-Z0-9-]+)/)?.[1]),result.screens.map(s=>s.screenId));
+});
+
+test('publisher exports original PNG bytes and excludes supplemental draft screens from the prototype review set',async()=>{
+ const p=fixture(),designPack=buildFigmaHandoff(p),ids=new Set(p.prototype.screens.map(screen=>screen.id));
+ designPack.manifest.screens.push({...designPack.manifest.screens[0],id:'SCR-DRAFT-FR-999',status:'DRAFT'});
+ const exports=[],png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV1sAAAAASUVORK5CYII=';
+ const result=await publishFigmaDesign({project:p,designPack,documentKey:'fixture-file',channelId:'fixture-channel',previewExporter:async({screenId})=>{exports.push(screenId);return {screenId,contentType:'image/png',base64:png}},runner:async prompt=>{
+  if(prompt.includes('READ-ONLY CONNECTION PREFLIGHT'))return {connected:true,documentKey:'fixture-file',failureCode:''};
+  assert.ok(prompt.includes('CREATE DESIGN FRAMES'));assert.ok(!prompt.includes('SCR-DRAFT-FR-999'));
+  return {documentKey:'fixture-file',screens:designPack.manifest.screens.filter(screen=>ids.has(screen.id)).map((screen,i)=>({screenId:screen.id,nodeId:`41:${i+1}`,verified:true})),notes:'OFFLINE FIXTURE'};
+ }});
+ assert.deepEqual(exports,[...ids]);assert.equal(result.screens.length,ids.size);assert.ok(result.previews.every(image=>image.contentType==='image/png'&&image.base64===png));
 });
 
 test('publisher rejects incomplete reports and invalid preview bytes; revisions require new frames and preserve old registry',async()=>{
