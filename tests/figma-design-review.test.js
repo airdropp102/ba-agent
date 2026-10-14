@@ -9,8 +9,8 @@ const reports=()=>[
  {screenId:'SCR-002',requirementIds:['FR-002'],nodeId:'11:2',verified:true}
 ];
 const previews=()=>[
- {screenId:'SCR-001',path:'04-figma/previews/run-1/SCR-001.jpg',contentType:'image/jpeg',sha256:'b'.repeat(64),sizeBytes:1200},
- {screenId:'SCR-002',path:'04-figma/previews/run-1/SCR-002.jpg',contentType:'image/jpeg',sha256:'c'.repeat(64),sizeBytes:1400}
+ {screenId:'SCR-001',path:`04-figma/exports/v1-web/previews/${'a'.repeat(8)}-${'a'.repeat(4)}-${'a'.repeat(4)}-${'a'.repeat(4)}-${'a'.repeat(12)}/SCR-001.jpg`,contentType:'image/jpeg',sha256:'b'.repeat(64),sizeBytes:1200},
+ {screenId:'SCR-002',path:`04-figma/exports/v1-web/previews/${'a'.repeat(8)}-${'a'.repeat(4)}-${'a'.repeat(4)}-${'a'.repeat(4)}-${'a'.repeat(12)}/SCR-002.jpg`,contentType:'image/jpeg',sha256:'c'.repeat(64),sizeBytes:1400}
 ];
 
 test('Figma input accepts supported HTTPS file links and channel IDs',()=>{

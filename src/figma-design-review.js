@@ -53,7 +53,7 @@ export function beginFigmaDesign(project,{documentKey,channelId,jobId}={}){
 function normalizePreview(file,screenId){
  if(!file||file.screenId!==screenId||file.contentType!=='image/jpeg')fail(`Missing valid JPEG preview: ${screenId}`);
  if(typeof file.path!=='string'||file.path.startsWith('/')||file.path.includes('\\')||file.path.split('/').some(x=>x==='..'||x==='.'||!x))fail(`Invalid preview path: ${screenId}`);
- if(!file.path.startsWith('04-figma/previews/')||!file.path.toLowerCase().endsWith('.jpg'))fail(`Invalid preview path: ${screenId}`);
+ if(!/^04-figma\/exports\/v\d+-(?:web|mobile)\/previews\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,80}\.jpg$/i.test(file.path))fail(`Invalid preview path: ${screenId}`);
  if(!SHA.test(file.sha256||'')||!Number.isSafeInteger(file.sizeBytes)||file.sizeBytes<4||file.sizeBytes>MAX_PREVIEW)fail(`Invalid JPEG preview metadata: ${screenId}`);
  return {screenId,path:file.path,contentType:file.contentType,sha256:file.sha256.toLowerCase(),sizeBytes:file.sizeBytes};
 }

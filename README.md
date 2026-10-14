@@ -249,7 +249,7 @@ The **optional Figma handoff** turns reviewed BRD/SRS and `ba.canonical.v1` into
 - [grab/cursor-talk-to-figma-mcp](https://github.com/grab/cursor-talk-to-figma-mcp) for Figma frame/text/shape creation and verification via a Codex CLI agent.
 - `skills/ba-designing-figma/SKILL.md` to preserve FR→screen traceability, human review, and DRAFT assumptions.
 
-**Web UI:** after **BA Review**, open BRD/SRS and download **Figma Design Brief** and **Figma Manifest**. If you have already generated an HTML prototype, its screens and components are reused; otherwise the handoff creates conservative screen candidates directly from functional requirements. No Figma file is modified by web exports.
+**Prototype tab:** after **BA Review** and HTML prototype generation, select **Start socket cursor-talk-to-figma-mcp**. BA Studio starts its loopback Bun relay. Open the target Figma file and connect the TalkToFigma plugin manually, then enter the Figma URL and the channel ID shown by that plugin. The channel help text explains where to find it. Continuing queues Codex + UI UX Pro Max to create the screen frames and previews. Review every screen and its FR mapping; approve to add it to the Figma gallery or request changes to draw a new version for review. The existing click-through HTML prototype stays separate. Design review is not customer sign-off. The direct **Figma Design Brief** and **Figma Manifest** downloads remain available.
 
 **Local operator flow:**
 
@@ -265,7 +265,7 @@ node scripts/figma-design.mjs --project YOUR_PROJECT_UUID \
   --figma-file YOUR_FIGMA_FILE_KEY
 ```
 
-For mobile, pass `--platform mobile`. See [setup.md](setup.md) for prerequisites. The operator must explicitly trigger `--publish`; the app itself never silently launches an external process. The structured Codex report is saved as `figma-run-report.json` beside the pack, and a verified-by-agent registry is written under `data/.figma-registry/` only if it validates. Verify the Figma document and node IDs manually. Figma MCP's basic drawing tools **do not automatically guarantee native clickable prototype interactions**.
+For the direct CLI path, pass `--platform mobile` as needed and explicitly run `--publish`; see [setup.md](setup.md). The Prototype UI starts the local socket only after the user clicks its start button and queues drawing only after the user submits the Figma file and channel. The structured Codex report is saved as `figma-run-report.json` beside the pack, and a verified-by-agent registry is written only if it validates. Verify the Figma document and node IDs manually. Figma MCP's basic drawing tools **do not automatically guarantee native clickable prototype interactions**.
 
 The pipeline is **not yet end-to-end tested against a real Figma session**. Offline handoff and API tests are included in `npm test`. Codex CLI can run as the web analysis provider with `DEMO_MODE=false` and `AI_PROVIDER=codex`, or independently for Figma publishing. Neither live Codex nor live Figma has been verified in this environment; automated tests use mock CLI processes.
 

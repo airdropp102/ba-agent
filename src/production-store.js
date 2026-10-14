@@ -128,7 +128,7 @@ INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,datetime('n
       this.writeAudit(projectId,'JOB_QUEUED','system',{jobId:id,runId});return this.job(id)
     });
   }
-  job(id){const row=this.db.prepare('SELECT * FROM workflow_jobs WHERE id=?').get(id);if(!row)throw err('Job not found',404);return {...row,options:JSON.parse(row.options),lease_token:undefined}}
+  job(id,{internal=false}={}){const row=this.db.prepare('SELECT * FROM workflow_jobs WHERE id=?').get(id);if(!row)throw err('Job not found',404);const options=JSON.parse(row.options);if(!internal){delete options.channelId;delete options.revisionNotes}return {...row,options,lease_token:undefined}}
   jobs(projectId){return this.db.prepare('SELECT id FROM workflow_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT 40').all(projectId).map(x=>this.job(x.id))}
   metrics(){
     const rows=this.db.prepare("SELECT state,COUNT(*) AS count,SUM(CASE WHEN attempts>1 THEN 1 ELSE 0 END) AS retried,AVG((julianday(updated_at)-julianday(created_at))*86400000.0) AS avg_age_ms FROM workflow_jobs GROUP BY state").all();
@@ -183,7 +183,7 @@ INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,datetime('n
       this.db.prepare('INSERT INTO project_leases(project_id,token,expires_at) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at').run(row.project_id,token,expire);
       this.db.prepare("UPDATE workflow_jobs SET state='RUNNING',attempts=attempts+1,lease_token=?,lease_until=?,updated_at=? WHERE id=?").run(token,expire,new Date().toISOString(),row.id);
       this.writeAudit(row.project_id,'JOB_LEASED','worker',{jobId:row.id,attempt:row.attempts+1,stolen:row.state==='RUNNING'});
-      return {...this.job(row.id),token};
+      return {...this.job(row.id,{internal:true}),token};
     }
     return null;
   })}
@@ -201,6 +201,7 @@ INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,datetime('n
     const state=!error?'SUCCEEDED':retry?'RETRY_WAIT':'DEAD_LETTER';
     const backoff=Math.min(60000,1000*2**(row.attempts-1));
     this.db.prepare('UPDATE workflow_jobs SET state=?,lease_token=NULL,lease_until=NULL,available_at=?,last_error=?,result_version=?,updated_at=? WHERE id=?').run(state,Date.now()+(retry?backoff:0),error?String(error).slice(0,300):null,resultVersion??null,new Date().toISOString(),id);
+    if(!retry&&JSON.parse(row.options).kind==='figma-design'){const options=JSON.parse(row.options);delete options.channelId;this.db.prepare('UPDATE workflow_jobs SET options=? WHERE id=?').run(JSON.stringify(options),id)}
     this.db.prepare('DELETE FROM project_leases WHERE project_id=? AND token=?').run(row.project_id,token);
     this.writeAudit(row.project_id,'JOB_'+state,'worker',{jobId:id,attempts:row.attempts,resultVersion,error:error?String(error).slice(0,120):null});return state;
   })}

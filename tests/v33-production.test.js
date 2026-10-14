@@ -66,6 +66,43 @@ test('Expired running job at max attempts is dead-lettered, not claimed again',a
  }finally{await rm(dir,{recursive:true,force:true})}
 });
 
+test('Figma channel credentials stay private in job reads and are scrubbed after terminal state',async()=>{
+ const dir=await temp();try{
+  const store=new ProductionStore(dir),p=project();store.save(p);const queued=store.enqueue(p.id,randomUUID(),{kind:'figma-design',channelId:'private-channel',documentKey:'figma_key'},{maxAttempts:1});
+  assert.equal(store.job(queued.id).options.channelId,undefined);const claimed=store.claimJob();assert.equal(claimed.options.channelId,'private-channel');
+  store.finishJob(claimed.id,claimed.token,{resultVersion:p.version});assert.equal(store.job(queued.id).options.channelId,undefined);store.db.close();
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
+test('Loopback API starts and stops its managed Figma socket relay',async()=>{
+ const dir=await temp();let server;const relayPort=31000+Math.floor(Math.random()*10000),fakeBun=path.join(dir,'fake-bun.cjs');try{
+  await writeFile(fakeBun,'#!/usr/bin/env node\nrequire("node:net").createServer().listen(Number(process.env.FIGMA_RELAY_PORT),"127.0.0.1");\n',{mode:0o700});
+  server=await launch(dir,{port:45000+Math.floor(Math.random()*3000),env:{BUN_BIN:fakeBun,FIGMA_RELAY_PORT:String(relayPort)}});
+  assert.equal((await server.api('/api/figma/relay')).data.state,'STOPPED');
+  const started=await server.api('/api/figma/relay/start','POST',{});assert.equal(started.status,200,JSON.stringify(started.data));assert.equal(started.data.state,'READY');
+  const stopped=await server.api('/api/figma/relay/stop','POST',{});assert.equal(stopped.data.state,'STOPPED');
+ }finally{if(server)await server.stop();await rm(dir,{recursive:true,force:true})}
+});
+
+test('Figma design API binds queued work to project version without exposing channel credentials',async()=>{
+ const dir=await temp();let server;const relayPort=42000+Math.floor(Math.random()*5000),fakeBun=path.join(dir,'fake-bun.cjs');try{
+  await writeFile(fakeBun,'#!/usr/bin/env node\nrequire("node:net").createServer().listen(Number(process.env.FIGMA_RELAY_PORT),"127.0.0.1");\n',{mode:0o700});
+  server=await launch(dir,{port:47000+Math.floor(Math.random()*2000),env:{BA_WORKER_ENABLED:'false',BUN_BIN:fakeBun,FIGMA_RELAY_PORT:String(relayPort)}});
+  let result=await server.api('/api/projects','POST',{title:sampleTitle,brief:sampleBrief});assert.equal(result.status,201);const id=result.data.id,base=`/api/projects/${id}`;
+  assert.equal((await server.api(base+'/analyze','POST',{})).status,200);
+  assert.equal((await server.api(base+'/review','POST',{approved:true,notes:'BA Review complete for design handoff.'})).status,200);
+  assert.equal((await server.api(base+'/generate','POST',{})).status,200);
+  assert.equal((await server.api('/api/figma/relay/start','POST',{})).status,200);
+  result=await server.api(base+'/figma-design','POST',{fileUrl:'https://www.figma.com/design/abc-123/MyFile',channelId:'private-channel-1'});
+  assert.equal(result.status,202,JSON.stringify(result.data));assert.equal(result.data.state,'QUEUED');
+  assert.equal(JSON.stringify(result.data).includes('private-channel-1'),false);
+  const design=await server.api(base+'/figma-design');assert.equal(design.data.figmaDesign.state,'QUEUED');assert.equal(JSON.stringify(design.data).includes('private-channel-1'),false);
+  const job=await server.api(base+'/workflow/jobs/'+result.data.jobId);assert.equal(job.data.options.kind,'figma-design');assert.equal(JSON.stringify(job.data).includes('private-channel-1'),false);
+  const projectRead=await server.api(base);assert.equal(JSON.stringify(projectRead.data).includes('private-channel-1'),false);
+  await server.api('/api/figma/relay/stop','POST',{});
+ }finally{if(server)await server.stop();await rm(dir,{recursive:true,force:true})}
+});
+
 test('Figma challenge consume + project commit are atomic, stale version cannot burn nonce',async()=>{
  const dir=await temp();try{
   const a=new ProductionStore(dir),p=project();a.save(p);

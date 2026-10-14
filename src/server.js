@@ -1,3 +1,5 @@
+import {codexTimeoutMs,runCodexStructured} from './codex-provider.js';
+import {withExecutionContext,logExecution} from './execution-log.js';
 import {applyClarificationBatch} from './clarification-batch.js';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -20,6 +22,10 @@ import {renderBRD,renderSRS,renderPRD,renderQuestionnaire} from './docs.js';
 import {renderStandalone} from './export.js';
 import {buildFigmaHandoff} from './figma-handoff.js';
 import {buildPublishPlan} from './figma-registry.js';
+import {createFigmaRelayManager} from './figma-relay.js';
+import {parseFigmaDesignInput,beginFigmaDesign,completeFigmaDesign,reviewFigmaDesign} from './figma-design-review.js';
+import {publishFigmaDesign} from './figma-publisher.js';
+import {FigmaPreviewStore} from './figma-preview-store.js';
 import {normalizeTechStack,createRecommendations,recordDecision,validDecision,techStackDigest,availableSolutionReferences} from './clarification-recommendations.js';
 import {ERP_CATALOG,ERP_PROCESSES,normalizeSolutionProfile,erpFitGapReport,recordERPFitGap,erpSolutionComparison} from './erp-intelligence.js';
 import {ensureWorkflow,unresolvedHigh,hasCurrentWaiver,acceptClarificationRisk,invalidateAfterAnalysis,checkpoint,nextStage,qualitySnapshot,designCoverage,hasActiveWorkflow} from './intelligent-workflow.js';
@@ -34,6 +40,8 @@ const publicDir=path.join(root,'public');
 await fs.mkdir(dataDir,{recursive:true,mode:0o700});
 const store=new ProductionStore(dataDir);
 const workspaces=new ProjectWorkspaces(store);
+const figmaPreviews=new FigmaPreviewStore(store,{dataDir});
+const figmaRelay=createFigmaRelayManager({bunExecutable:process.env.BUN_BIN||'bun',relayEntry:path.join(root,'vendor/talk-to-figma-relay/socket.ts'),host:process.env.FIGMA_RELAY_HOST||'127.0.0.1',port:Number(process.env.FIGMA_RELAY_PORT||3055)});
 setTelemetrySink(event=>store.recordAIUsage(event));
 const qualitySettings=qualityPolicy();
 await store.importLegacy();
@@ -58,7 +66,9 @@ function auditAs(p,actor,event,details={}){
   Object.defineProperty(p,'_auditDetails',{value:details,configurable:true,enumerable:false});
 }
 const save=async (p,options={})=>{
+  logExecution('DB_SAVE_START',{projectId:p.id,stage:p.workflow?.stage,version:p.version});
   store.save(p,{actorId:p._auditActor||'system',eventType:p._auditEvent||'PROJECT_COMMITTED',details:p._auditDetails||{stage:p.workflow?.stage,state:p.workflow?.state},...(p.analysis?{qualityReport:assessDeliverables(p,{policy:qualitySettings})}:{}),...options});
+  logExecution('DB_SAVE_COMPLETE',{projectId:p.id,stage:p.workflow?.stage,version:p.version});
   delete p._auditActor;delete p._auditEvent;delete p._auditDetails;
   // Read-only projection for v3.2 CLI, never used as the canonical state after migration.
   await workspaces.exportProject(p).catch(e=>console.error('[BA Studio] Workspace projection failed:',e.message));
@@ -98,7 +108,7 @@ async function newAnalysis(p,sourceText) {
   p.updatedAt=new Date().toISOString();
 }
 
-const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data))};
+const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data,(key,value)=>['channelId','revisionNotes'].includes(key)?undefined:value))};
 const error=(res,msg,status=400)=>json(res,{error:msg},status);
 const readBody=async req=>{let size=0;const buffers=[];for await(const chunk of req){size+=chunk.length;if(size>500_000)throw Object.assign(new Error('Dữ liệu đầu vào vượt giới hạn 500 KB'),{status:413});buffers.push(chunk)}try{return JSON.parse(Buffer.concat(buffers).toString('utf8'))}catch{throw Object.assign(new Error('JSON không hợp lệ'),{status:400})}};
 const docsFilename={prd:'PRD.md',brd:'BRD.md',srs:'SRS.md',prototype:'prototype.html',json:'analysis.json',canonical:'canonical.json',questions:'clarification-questions.md',figma:'FIGMA_INSTRUCTIONS.md','figma-manifest':'figma-manifest.json'};
@@ -288,6 +298,42 @@ async function handler(req,res){
         if(process.env.REQUIRE_IF_MATCH==='true' && expected===undefined)return error(res,'If-Match version required for mutation.',428);
       }
       if(segments.length===3&&req.method==='GET')return json(res,p);
+      if(segments[3]==='figma-design'&&segments.length===4&&req.method==='GET'){
+        const design=p.figmaDesign?structuredClone(p.figmaDesign):null;if(design){delete design.channelId;delete design.revisionNotes}
+        const jobs=store.jobs(p.id).filter(j=>j.options?.kind==='figma-design');return json(res,{projectId:p.id,version:p.version,figmaDesign:design,job:jobs[0]||null});
+      }
+      if(segments[3]==='figma-design'&&segments.length===4&&req.method==='POST'){
+        if(p.requirementsRefreshPending)return error(res,'Yêu cầu đã thay đổi; cần phân tích và review lại trước khi vẽ Figma.',409);
+        if(p.review?.approved!==true||!p.prototype?.screens?.length)return error(res,'BA Review và prototype hiện tại là điều kiện bắt buộc trước khi vẽ Figma.',409);
+        if(figmaRelay.status().state!=='READY')return error(res,'Hãy khởi chạy Figma relay và kết nối plugin trước khi tiếp tục.',409);
+        const body=await readBody(req);let connection,revisionNotes='';
+        if(body.revisionNotes!==undefined){
+          revisionNotes=String(body.revisionNotes);if(!revisionNotes.trim()||revisionNotes.length>3000)return error(res,'Revision feedback phải có nội dung và tối đa 3000 ký tự.',400);
+          if(p.figmaDesign?.state!=='REVISION_REQUESTED'||!p.figmaDesign.channelId)return error(res,'Không có bản design đang chờ chỉnh sửa.',409);
+          connection={documentKey:p.figmaDesign.documentKey,channelId:p.figmaDesign.channelId};
+        }else{try{connection=parseFigmaDesignInput(body)}catch(e){return error(res,e.message,400)}}
+        const runId=randomUUID(),projectVersion=p.version+1;
+        const next=beginFigmaDesign(p,{...connection,jobId:runId});next.figmaDesign.state='QUEUED';next.figmaDesign.revisionNotes=revisionNotes;
+        next.version=projectVersion;next.figmaDesign.projectVersion=projectVersion;next.updatedAt=new Date().toISOString();
+        const job=store.enqueue(p.id,runId,{kind:'figma-design',documentKey:connection.documentKey,channelId:connection.channelId,revisionNotes,projectVersion},{maxAttempts:1});
+        auditAs(next,reviewerId(req),'FIGMA_DESIGN_QUEUED',{runId,revision:next.figmaDesign.revision,projectVersion});store.attach(next,p._dbRevision,requestLease);await save(next);
+        return json(res,{projectId:p.id,version:next.version,figmaDesign:{...next.figmaDesign,channelId:undefined},jobId:job.id,state:'QUEUED'},202);
+      }
+      if(segments[3]==='figma-design'&&segments[4]==='review'&&segments.length===5&&req.method==='POST'){
+        const body=await readBody(req),actor=reviewerId(req);let next;
+        try{next=reviewFigmaDesign(p,{...body,reviewerId:actor})}catch(e){return error(res,e.message,409)}
+        next.version++;next.updatedAt=new Date().toISOString();if(next.figmaDesign.draft)next.figmaDesign.draft.projectVersion=next.version;
+        if(next.figmaDesign.approved)next.figmaDesign.approved.projectVersion=next.version;
+        auditAs(next,actor,'FIGMA_DESIGN_'+body.decision,{manifestDigest:body.manifestDigest,projectVersion:body.projectVersion,screenIds:next.figmaDesign.history.at(-1).screenIds});store.attach(next,p._dbRevision,requestLease);await save(next);
+        const design=structuredClone(next.figmaDesign);delete design.channelId;delete design.revisionNotes;return json(res,{projectId:next.id,version:next.version,figmaDesign:design});
+      }
+      if(segments[3]==='figma-design'&&segments[4]==='previews'&&segments[5]&&segments.length===6&&req.method==='GET'){
+        const screenId=segments[5],design=p.figmaDesign;
+        const screens=design?.state==='WAITING_FOR_REVIEW'?design.screens:design?.approved?.screens;
+        const item=screens?.find(s=>s.screenId===screenId);if(!item)return error(res,'Preview is not available for this project screen',404);
+        const bytes=await figmaPreviews.read(p.id,item.preview.path,item.preview);
+        res.writeHead(200,{'Content-Type':'image/jpeg','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);
+      }
       if(segments[3]==='erp'&&segments.length===4&&req.method==='GET')return json(res,{projectId:p.id,profile:p.solutionProfile||null,assessment:erpFitGapReport(p),comparison:erpSolutionComparison(p)});
       if(segments[3]==='erp'&&segments[4]==='profile'&&segments.length===5&&req.method==='POST'){
         const body=await readBody(req),profile=normalizeSolutionProfile(body.solutionProfile),actor=reviewerId(req);
@@ -353,7 +399,7 @@ async function handler(req,res){
       }
       if(segments[3]==='recommendations'&&segments[4]==='approve'&&req.method==='POST'){
         const body=await readBody(req),actor=reviewerId(req);
-        const decision=recordDecision(p,body,actor);
+        const decision=recordDecision(p,await resolveAnswerAttachments(p.id,body),actor);
         invalidateAfterAnalysis(p); // Reset dependent workflow checkpoints and invalidate design.
         if(p.workflow){p.workflow.state='READY';p.workflow.waiver=null;}
         p.version++;p.updatedAt=new Date().toISOString();
@@ -576,16 +622,40 @@ let workerBusy=false;
 async function tickWorker(){
   if(workerBusy)return;
   const job=store.claimJob();if(!job)return;
-  workerBusy=true;
+  workerBusy=true;logExecution('WORKER_JOB_START',{projectId:job.project_id,runId:job.run_id});
   const heartbeat=setInterval(()=>{
     try{if(!store.renewJob(job.id,job.token))console.error('[BA Worker] lease lost',job.id)}catch(e){console.error('[BA Worker] heartbeat',e.message)}
   },10000);
   heartbeat.unref();
   try{
     const p=await safeGet(job.project_id,job.token);
+    if(job.options?.kind==='figma-design'){
+      const runId=job.run_id,design=p.figmaDesign;
+      if(!design||design.runId!==runId||design.state!=='QUEUED'||design.projectVersion!==p.version||job.options.projectVersion!==p.version)throw new Error('Figma design run is stale or inactive');
+      if(figmaRelay.status().state!=='READY')throw new Error('Figma relay is not ready');
+      design.state='DESIGNING';
+      const platform=p.workflow?.platform||'web',handoff=buildFigmaHandoff(p,{platform});
+      const outputDirectory=path.join(workspaces.root(p.id),'04-figma','exports',`v${p.version}-${platform}`);
+      await fs.mkdir(outputDirectory,{recursive:true,mode:0o700});
+      const files={'BRD.md':handoff.brd,'SRS.md':handoff.srs,'canonical.json':JSON.stringify(handoff.canonical,null,2),'figma-manifest.json':JSON.stringify(handoff.manifest,null,2),'FIGMA_INSTRUCTIONS.md':handoff.instructions,'figma-publish-plan.json':JSON.stringify(buildPublishPlan(handoff.manifest),null,2)};
+      for(const [name,content] of Object.entries(files))await fs.writeFile(path.join(outputDirectory,name),content,{mode:0o600});
+      const registryFile=registryPath(p.id,job.options.documentKey);let registry=null;
+      if(existsSync(registryFile))registry=JSON.parse(await fs.readFile(registryFile,'utf8'));
+      const published=await withExecutionContext({projectId:p.id,runId,stage:'FIGMA_DESIGN',provider:'codex',model:process.env.CODEX_MODEL||'codex-cli'},()=>publishFigmaDesign({project:p,designPack:handoff,documentKey:job.options.documentKey,channelId:job.options.channelId,revisionNotes:job.options.revisionNotes||'',outputDirectory,registry,runner:(prompt,schema,options)=>runCodexStructured(prompt,schema,{...options,timeoutMs:codexTimeoutMs(process.env.CODEX_FIGMA_TIMEOUT_MS||600000)})}));
+      const registryDir=figmaRegistryDirectory(dataDir,p.id);await fs.mkdir(registryDir,{recursive:true,mode:0o700});
+      const registryTarget=path.join(registryDir,`${job.options.documentKey}.json`),registryTemp=registryTarget+'.'+randomUUID()+'.tmp';
+      try{await fs.writeFile(registryTemp,JSON.stringify(published.registry,null,2),{flag:'wx',mode:0o600});await fs.rename(registryTemp,registryTarget)}finally{await fs.rm(registryTemp,{force:true}).catch(()=>{})}
+      const previewFiles=await figmaPreviews.write(p.id,{version:p.version,platform,runId,previews:published.previews});
+      const next=completeFigmaDesign(p,{runId,projectVersion:p.version,manifestDigest:published.manifestDigest,screens:published.screens,previewFiles});
+      next.version++;next.figmaDesign.projectVersion=next.version;next.figmaDesign.draft.projectVersion=next.version;delete next.figmaDesign.revisionNotes;next.updatedAt=new Date().toISOString();
+      auditAs(next,'worker','FIGMA_DESIGN_READY_FOR_REVIEW',{runId,revision:next.figmaDesign.revision,manifestDigest:published.manifestDigest,screenIds:next.figmaDesign.draft.screenIds,projectVersion:next.version});
+      store.attach(next,p._dbRevision,job.token);await save(next);store.finishJob(job.id,job.token,{resultVersion:next.version});
+      logExecution('WORKER_FIGMA_DESIGN_COMPLETE',{projectId:p.id,runId,version:next.version,screens:previewFiles.length});return;
+    }
     if(p.workflow?.runId!==job.run_id)throw new Error('Workflow run changed; queued job is stale');
     const result=await advanceWorkflow(p,job.options);
     store.finishJob(job.id,job.token,{resultVersion:result.version});
+    logExecution('WORKER_JOB_COMPLETE',{projectId:job.project_id,runId:job.run_id,version:result.version});
   }catch(e){
     console.error('[BA Worker] failed job',job.id,e.message);
     try{store.finishJob(job.id,job.token,{error:e.message,retryable:!(/Workflow run changed|queued job is stale/.test(e.message))})}catch(x){console.error('[BA Worker] finish rejected:',x.message)}
@@ -595,3 +665,5 @@ if(process.env.BA_WORKER_ONLY==='true'||process.env.BA_WORKER_ENABLED!=='false')
   const timer=setInterval(()=>tickWorker().catch(e=>console.error('[BA Worker]',e.message)),Number(process.env.BA_JOB_POLL_MS||1500));
   if(process.env.BA_WORKER_ONLY!=='true')timer.unref();
 }
+const shutdownRelay=()=>{figmaRelay.stop().catch(e=>console.error('[BA Figma relay] shutdown:',e.message)).finally(()=>server.close(()=>{store.db.close();process.exit(0)}))};
+process.once('SIGTERM',shutdownRelay);process.once('SIGINT',shutdownRelay);
