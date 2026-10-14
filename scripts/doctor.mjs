@@ -45,7 +45,9 @@ try{
 const external=!['127.0.0.1','localhost','::1'].includes(host);
 record('Network binding',!external||(String(process.env.BA_STUDIO_TOKEN||'').length>=32&&process.env.REQUIRE_REVIEWER_IDENTITY==='true')?'PASS':'FAIL',external?'remote bind; 32-character API token, reviewer identity, HTTPS proxy/VPN required':'localhost only');
 if(checkFigma){
- const bun=command('bun',['--version']);record('Bun (Figma socket)',bun.ok?'PASS':'FAIL',bun.message||'bun missing');
+ const bun=command(process.env.BUN_BIN||'bun',['--version']);record('Bun runtime',bun.ok?'PASS':'FAIL',bun.message||'bun missing');
+ const relay=path.join(root,'vendor/talk-to-figma-relay/socket.ts');
+ record('Local-safe Figma relay',existsSync(relay)?'PASS':'FAIL',existsSync(relay)?'loopback-only relay source installed':'vendored relay source missing');
  const codex=command(process.env.CODEX_BIN||'codex',['mcp','list']);
  record('Codex MCP list',codex.ok?'PASS':'FAIL',codex.message||'codex mcp list failed');
  if(codex.ok)record('TalkToFigma MCP',/talktofigma|cursor-talk-to-figma/i.test(codex.raw)?'PASS':'WARN','Check live channel/plugin separately (not verified by doctor)');
