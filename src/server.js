@@ -265,6 +265,12 @@ async function handler(req,res){
       if(String(req.headers['content-type']||'').split(';')[0].trim()!=='application/json')return error(res,'Content-Type must be application/json',415);
     }
     if(req.method==='GET'&&url.pathname==='/api/status')return json(res,{demo,provider:mode,model:mode==='demo'?'demo':mode==='codex'?'codex-cli':process.env.OPENAI_MODEL||'gpt-4.1-mini',localOnly:!publicBind,engine:'sqlite-wal-v3.4',qualityPolicy:qualitySettings,durableJobs:true});
+    if(url.pathname.startsWith('/api/figma/relay')){
+      if(publicBind)return error(res,'Figma relay controls are available only on loopback BA Studio',403);
+      if(req.method==='GET'&&url.pathname==='/api/figma/relay')return json(res,figmaRelay.status());
+      if(req.method==='POST'&&url.pathname==='/api/figma/relay/start')return json(res,await figmaRelay.start(),figmaRelay.status().state==='READY'?200:503);
+      if(req.method==='POST'&&url.pathname==='/api/figma/relay/stop')return json(res,await figmaRelay.stop());
+    }
     if(req.method==='GET'&&url.pathname==='/api/metrics')return json(res,{...store.metrics(),ai:store.aiMetrics()});
     if(req.method==='GET'&&url.pathname==='/api/projects')return json(res,store.list());
     if(req.method==='GET'&&url.pathname==='/api/erp/catalog')return json(res,{platforms:ERP_CATALOG,processes:ERP_PROCESSES});
@@ -329,7 +335,7 @@ async function handler(req,res){
       }
       if(segments[3]==='figma-design'&&segments[4]==='previews'&&segments[5]&&segments.length===6&&req.method==='GET'){
         const screenId=segments[5],design=p.figmaDesign;
-        const screens=design?.state==='WAITING_FOR_REVIEW'?design.screens:design?.approved?.screens;
+        const screens=design?.state==='WAITING_FOR_REVIEW'&&design.draft?.projectVersion===p.version?design.screens:design?.state==='APPROVED'&&design.approved?.projectVersion===p.version?design.approved.screens:null;
         const item=screens?.find(s=>s.screenId===screenId);if(!item)return error(res,'Preview is not available for this project screen',404);
         const bytes=await figmaPreviews.read(p.id,item.preview.path,item.preview);
         res.writeHead(200,{'Content-Type':'image/jpeg','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);
@@ -657,8 +663,13 @@ async function tickWorker(){
     store.finishJob(job.id,job.token,{resultVersion:result.version});
     logExecution('WORKER_JOB_COMPLETE',{projectId:job.project_id,runId:job.run_id,version:result.version});
   }catch(e){
-    console.error('[BA Worker] failed job',job.id,e.message);
-    try{store.finishJob(job.id,job.token,{error:e.message,retryable:!(/Workflow run changed|queued job is stale/.test(e.message))})}catch(x){console.error('[BA Worker] finish rejected:',x.message)}
+    if(job.options?.kind==='figma-design'){
+      console.error('[BA Worker] Figma design failed',job.id);
+      try{const failed=await safeGet(job.project_id,job.token);if(failed.figmaDesign?.runId===job.run_id&&failed.figmaDesign.state==='QUEUED'){failed.figmaDesign.state='FAILED';failed.figmaDesign.errorCode='DESIGN_FAILED';failed.version++;failed.updatedAt=new Date().toISOString();auditAs(failed,'worker','FIGMA_DESIGN_FAILED',{runId:job.run_id,revision:failed.figmaDesign.revision});await save(failed)}store.finishJob(job.id,job.token,{error:'Figma design failed',retryable:false})}catch(x){console.error('[BA Worker] Figma failure finalization rejected:',x.message)}
+    }else{
+      console.error('[BA Worker] failed job',job.id,e.message);
+      try{store.finishJob(job.id,job.token,{error:e.message,retryable:!(/Workflow run changed|queued job is stale/.test(e.message))})}catch(x){console.error('[BA Worker] finish rejected:',x.message)}
+    }
   }finally{clearInterval(heartbeat);workerBusy=false}
 }
 if(process.env.BA_WORKER_ONLY==='true'||process.env.BA_WORKER_ENABLED!=='false'){
