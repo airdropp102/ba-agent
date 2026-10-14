@@ -20,3 +20,6 @@ adjudicator-*.json
 
 # v3.5 local continuity state and handoff (may include sensitive project notes)
 .session-handoff/
+
+# Isolated development worktrees
+.worktrees/
