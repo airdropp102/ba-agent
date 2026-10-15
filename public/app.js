@@ -11,7 +11,12 @@ let toastTimer;
 function toast(message,isError=false){const e=$('toast');e.textContent=message;e.className='toast visible'+(isError?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.className='toast',4500)}
 function elt(tag,text,cls){const el=document.createElement(tag);if(text!==undefined&&text!==null)el.textContent=String(text);if(cls)el.className=cls;return el}
 function add(parent,...children){for(const child of children)if(child)parent.append(child);return parent}
-function button(text,fn,css='quiet'){const b=elt('button',text,css);b.onclick=fn;b.disabled=state.busy;return b}
+const iconPaths={plus:'M12 5v14M5 12h14',search:'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',menu:'M4 6h16M4 12h16M4 18h16',grid:'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',folder:'M3 7V5h6l2 2h10v13H3z',document:'M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6',layers:'m12 3 10 5-10 5L2 8zM2 12l10 5 10-5M2 16l10 5 10-5',shield:'M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6zM8 12l3 3 5-6',sparkles:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5zM20 2v4M18 4h4',arrow:'M4 12h16m-6-6 6 6-6 6',download:'M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4',upload:'M12 16V4m-5 5 5-5 5 5M4 17v4h16v-4',refresh:'M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 14 6M18 18a8 8 0 0 1-14-6'};
+function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('class','icon');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',iconPaths[name]||iconPaths.document);svg.append(path);return svg;}
+function button(text,fn,css='quiet'){const b=elt('button',null,css),match=text.match(/^([↓↑✦↻↺↗])\s*/),names={'↓':'download','↑':'upload','✦':'sparkles','↻':'refresh','↺':'refresh','↗':'arrow'};if(match)b.append(icon(names[match[1]]));b.append(document.createTextNode(match?text.slice(match[0].length):text));b.onclick=fn;b.disabled=state.busy;return b}
+function closeNavigation(){const sidebar=$('workspace-navigation');sidebar.classList.remove('is-open');$('nav-toggle').setAttribute('aria-expanded','false');$('nav-toggle').setAttribute('aria-label','Mở danh sách dự án');}
+function filterProjectList(){const normalized=value=>value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');const query=normalized($('project-search').value);let visible=0;document.querySelectorAll('.project-link').forEach(b=>{b.hidden=!normalized(b.dataset.title).includes(query);if(!b.hidden)visible++});$('project-no-results')?.remove();if(!visible&&query){const empty=elt('p','Không tìm thấy dự án phù hợp.','empty');empty.id='project-no-results';$('project-list').append(empty)}}
+
 let authToken=sessionStorage.getItem('ba-studio-token')||'';
 let reviewerToken=sessionStorage.getItem('ba-studio-reviewer-token')||'';
 let pendingLogin=null;
@@ -48,13 +53,13 @@ async function download(route){
   const anchor=document.createElement('a');anchor.href=url;anchor.download=route.split('/').at(-1);document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 async function work(fn){if(state.busy)return;state.busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);try{await fn()}catch(e){toast(e.message,true)}finally{state.busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false);document.dispatchEvent(new Event('ba-idle'));}}
-async function loadProjects({restore=false}={}){const projects=await api('/api/projects');const list=$('project-list');list.replaceChildren();if(!projects.length)list.append(elt('p','Chưa có dự án','empty'));for(const p of projects){const b=elt('button',null,'project-link'+(state.project?.id===p.id?' selected':''));add(b,elt('strong',p.title),elt('small',`${statusNames[p.status]} · v${p.version}${p.demo?' · DEMO':''}`));b.onclick=()=>work(async()=>{const fresh=await api(`/api/projects/${p.id}`);await selectProject(fresh)});list.append(b)}if(restore&&!state.project&&projects.length){const project=projectToRestore(projects,localStorage.getItem('ba-studio:lastProjectId'));const fresh=await api(`/api/projects/${project.id}`);await selectProject(fresh,localStorage.getItem('ba-studio:lastProjectTab')||'workflow')}}
-function resetWelcome(){$('welcome-view').hidden=false;$('project-view').hidden=true;$('page-title').textContent='From Brief to Blueprint.';$('page-subtitle').textContent='Biến yêu cầu khách hàng thành đặc tả rõ ràng và prototype có thể kiểm thử.';state.project=null;state.docCache={};loadProjects().catch(e=>toast(e.message,true))}
+async function loadProjects({restore=false}={}){const projects=await api('/api/projects');const list=$('project-list');$('project-count').textContent=projects.length;list.replaceChildren();if(!projects.length)list.append(elt('p','Chưa có dự án','empty'));for(const p of projects){const b=elt('button',null,'project-link'+(state.project?.id===p.id?' selected':''));add(b,elt('strong',p.title),elt('small',`${statusNames[p.status]} · v${p.version}${p.demo?' · DEMO':''}`));b.dataset.title=p.title;b.title=p.title;b.setAttribute('aria-current',state.project?.id===p.id?'page':'false');b.onclick=()=>work(async()=>{const fresh=await api(`/api/projects/${p.id}`);await selectProject(fresh);closeNavigation();$('page-title').focus()});list.append(b)}filterProjectList();if(restore&&!state.project&&projects.length){const project=projectToRestore(projects,localStorage.getItem('ba-studio:lastProjectId'));const fresh=await api(`/api/projects/${project.id}`);await selectProject(fresh,localStorage.getItem('ba-studio:lastProjectTab')||'workflow')}}
+function resetWelcome(){$('welcome-view').hidden=false;$('project-view').hidden=true;$('page-title').textContent='Bắt đầu từ một ý tưởng.';$('location-label').textContent='Dự án mới';closeNavigation();$('page-subtitle').textContent='Cùng biến yêu cầu ban đầu thành tài liệu rõ ràng và prototype trực quan.';state.project=null;state.docCache={};loadProjects().catch(e=>toast(e.message,true))}
 async function selectProject(project,tab='workflow'){state.project=project;state.docCache={};state.tab=tab;localStorage.setItem('ba-studio:lastProjectId',project.id);localStorage.setItem('ba-studio:lastProjectTab',tab);state.workflowPlatform=project.workflow?.platform||'web';state.figmaDesign=null;state.figmaJob=null;try{const [design,relay]=await Promise.all([api(`/api/projects/${project.id}/figma-design`),api('/api/figma/relay')]);state.figmaDesign=design.figmaDesign;state.figmaJob=design.job;state.figmaRelay=relay}catch{}$('welcome-view').hidden=true;$('project-view').hidden=false;$('page-title').textContent=project.title;$('page-subtitle').textContent='Phiên bản '+project.version+' · Cập nhật '+new Date(project.updatedAt).toLocaleString('vi-VN');$('project-id').textContent='PROJECT / '+project.id.split('-')[0].toUpperCase();$('status-label').textContent=statusNames[project.status]+(project.demo?' • DEMO':'');const index=stages.indexOf(project.status);document.querySelectorAll('.step').forEach((e,i)=>e.classList.toggle('done',i<=index));await render();if(['QUEUED','DESIGNING'].includes(state.figmaDesign?.state))pollFigmaDesign(project.id);loadProjects().catch(e=>toast(e.message,true))}
 function setTab(tab){state.tab=tab;if(state.project)localStorage.setItem('ba-studio:lastProjectTab',tab);render().catch(e=>toast(e.message,true))}
 async function render(){
   const p=state.project;if(!p)return;
-  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===state.tab));
+  document.querySelectorAll('.tab').forEach(b=>{const active=b.dataset.tab===state.tab;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');if(active)$('location-label').textContent=b.textContent.trim()});
   $('workflow-content').hidden=state.tab!=='workflow';
   $('analysis-content').hidden=state.tab!=='analysis';
   $('document-content').hidden=!['prd','brd','srs'].includes(state.tab);
@@ -94,26 +99,28 @@ async function progressWorkflow(){
 async function renderProjectFiles(){
   const p=state.project,root=$('files-content');root.replaceChildren();
   const location=await api(`/api/projects/${p.id}/workspace`);
-  const workspace=panel('Thư mục dự án',`Workspace: ${location.relativePath} · Snapshot từ SQLite v${location.version}`);
-  workspace.append(elt('p','PRD, BRD, SRS ở 02-requirements; prototype ở 03-prototypes; handoff ở 08-sessions. Các tài liệu chưa được BA duyệt luôn mang trạng thái draft.'));
-  const input=elt('input');input.type='file';input.accept='.txt,.md,.json,.csv';
-  const select=elt('select');for(const [value,title] of [['customer','Yêu cầu khách hàng'],['reference','Tài liệu tham khảo'],['approval','Biên bản phê duyệt']]){
+  const workspace=panel('Tài liệu dự án','Lưu yêu cầu, tài liệu tham khảo và biên bản để mọi thông tin luôn ở cùng dự án.');workspace.classList.add('documents-upload-panel');
+  const meta=elt('details',null,'documents-storage');meta.append(elt('summary','Thông tin lưu trữ'),elt('p',`Thư mục: ${location.relativePath} · Phiên bản ${location.version}`),elt('p','PRD, BRD, SRS: 02-requirements · Prototype: 03-prototypes · Handoff: 08-sessions. Tài liệu chưa được BA duyệt luôn là bản nháp.'));workspace.append(meta);
+  const input=elt('input');input.type='file';input.accept='.txt,.md,.json,.csv';input.id='project-document-file';input.hidden=true;
+  const select=elt('select');select.id='project-document-category';for(const [value,title] of [['customer','Yêu cầu khách hàng'],['reference','Tài liệu tham khảo'],['approval','Biên bản phê duyệt']]){
     const opt=elt('option',title);opt.value=value;select.append(opt);
   }
-  const actions=elt('div',null,'actions');actions.append(select,input);
-  actions.append(button('↑ Lưu vào dự án',()=>work(async()=>{
+  const actions=elt('div',null,'documents-upload-grid'),category=elt('div',null,'document-field'),categoryLabel=elt('label','Loại tài liệu');categoryLabel.htmlFor=select.id;category.append(categoryLabel,select,elt('small','Chọn nhóm phù hợp với nội dung.'));
+  const fileField=elt('div',null,'document-field'),fileLabel=elt('label','Tệp đính kèm');fileLabel.htmlFor=input.id;
+  const picker=elt('div',null,'document-picker'),fileInfo=elt('div',null,'document-file-info'),filename=elt('strong','Chưa chọn tệp'),fileHint=elt('small','TXT, MD, JSON, CSV · Tối đa 300 KB');fileInfo.setAttribute('aria-live','polite');fileInfo.append(filename,fileHint);
+  const choose=button('Chọn tệp',()=>input.click(),'quiet');choose.setAttribute('aria-controls',input.id);picker.append(icon('upload'),fileInfo,choose,input);fileField.append(fileLabel,picker);input.onchange=()=>{const file=input.files?.[0];filename.textContent=file?file.name:'Chưa chọn tệp';fileHint.textContent=file?`${Math.ceil(file.size/1024)} KB · Sẵn sàng lưu`:'TXT, MD, JSON, CSV · Tối đa 300 KB';picker.classList.toggle('has-file',!!file);if(file&&file.size>300000)fileHint.textContent='Tệp vượt giới hạn 300 KB. Vui lòng chọn tệp nhỏ hơn.'};actions.append(category,fileField);
+  const footer=elt('div',null,'documents-upload-footer'),note=elt('p');note.append(icon('shield'),elt('span','Bản gốc được giữ nguyên và lưu riêng trong dự án.'));footer.append(note,button('↑ Lưu vào dự án',()=>work(async()=>{
     if(!input.files?.length)throw new Error('Chọn một file tài liệu trước.');
     const file=input.files[0];if(file.size>300000)throw new Error('Tệp vượt 300 KB; dùng API/CLI batch riêng cho tệp lớn.');
     await api(`/api/projects/${p.id}/files`,'POST',{category:select.value,filename:file.name,content:await file.text()});
     toast('Tài liệu đã được ghi riêng theo dự án, kèm mã định danh và checksum.');await renderProjectFiles();
-  }),'secondary'));
-  workspace.append(actions);root.append(workspace);
+  }),'primary'));
+  workspace.append(actions,footer);root.append(workspace);
   const documents=await api(`/api/projects/${p.id}/files`);
-  const listing=panel('Tài liệu bổ sung ('+documents.length+')','Tài liệu nhập riêng, giữ nguyên bản gốc và ghi audit.');
-  if(!documents.length)listing.append(elt('p','Chưa có tài liệu bổ sung.','empty'));
+  const listing=panel('Tài liệu đã lưu','Các tệp bổ sung của dự án, sẵn sàng để xem hoặc tải xuống.');listing.classList.add('documents-list-panel');listing.querySelector('.section-heading').append(elt('span',documents.length+' tài liệu','pill'));
+  if(!documents.length){const empty=elt('div',null,'documents-empty'),symbol=elt('span',null,'documents-empty-icon');symbol.append(icon('folder'));empty.append(symbol,elt('h3','Tài liệu đầu tiên bắt đầu từ đây'),elt('p','Chọn một tệp ở phía trên và nhấn “Lưu vào dự án” để bổ sung thông tin.'));listing.append(empty)}
   for(const doc of documents){
-    const row=elt('div',null,'actions');
-    row.append(elt('span',`${doc.filename} · ${doc.category} · ${Math.ceil(doc.size_bytes/1024)} KB · SHA ${doc.sha256.slice(0,12)}`));
+    const row=elt('div',null,'document-list-row'),symbol=elt('span',null,'document-type-icon'),info=elt('div',null,'document-list-info');symbol.append(icon('document'));info.append(elt('strong',doc.filename),elt('small',`${({customer:'Yêu cầu khách hàng',reference:'Tài liệu tham khảo',approval:'Biên bản phê duyệt'})[doc.category]||doc.category} · ${Math.ceil(doc.size_bytes/1024)} KB`));const integrity=elt('details',null,'document-integrity');integrity.append(elt('summary','Mã kiểm tra'),elt('code',doc.sha256));info.append(integrity);row.append(symbol,info);
     row.append(button('↓ Đọc / tải',()=>work(async()=>{
       const result=await api(`/api/projects/${p.id}/files/${doc.id}`);
       const content=result.encoding==='base64'?Uint8Array.from(atob(result.content),c=>c.charCodeAt(0)):result.content;
@@ -128,15 +135,15 @@ async function renderProjectFiles(){
 function renderWorkflow(){
   const p=state.project,w=p.workflow||{stage:'BRAINSTORM',state:'READY',checkpoints:[]},root=$('workflow-content');root.replaceChildren();
   const finished=w.state==='COMPLETED'||['FIGMA_DESIGN','FIGMA_PUBLISH'].includes(w.stage);
-  const head=panel('Intelligent BA Workflow','Chạy theo checkpoint, tự dừng để xác nhận thông tin hoặc BA review. Quản lý thiết kế Figma tại tab Prototype.');
+  const head=panel('Hành trình dự án','Chạy theo checkpoint, tự dừng để xác nhận thông tin hoặc BA review. Quản lý thiết kế Figma tại tab Prototype.');
   const job=state.workflowJob?.projectId===p.id?state.workflowJob:null;
   const status=workflowStatus(p,job);head.classList.add('workflow-dashboard');head.dataset.motion=status.active?'active':'idle';
-  const hero=elt('div',null,'workflow-hero');hero.dataset.tone=status.tone;
+  const hero=elt('div',null,'workflow-hero');hero.dataset.tone=finished?'complete':status.tone;
   const badge=elt('span',status.label,'workflow-status-badge');badge.setAttribute('role','status');
   const stageText=elt('div');stageText.append(elt('small','BƯỚC HIỆN TẠI'),elt('h3',finished?'BRD / SRS / Prototype':wfLabels[w.stage]||w.stage));
   hero.append(stageText,badge);head.append(hero);
   const metrics=elt('div',null,'workflow-stats');
-  add(metrics,metric((w.checkpoints||[]).length,'Checkpoint đã lưu'),metric(elapsedLabel(status.stageSeconds),'Thời gian bước hiện tại'),metric(elapsedLabel(status.jobSeconds),'Tổng thời gian job'));
+  add(metrics,metric((w.checkpoints||[]).length,'Mốc xử lý đã lưu'),metric(elapsedLabel(status.stageSeconds),'Thời gian bước hiện tại'),metric(elapsedLabel(status.jobSeconds),'Tổng thời gian job'));
   head.append(metrics);
   if(status.job){const note=elt('p',`${status.job.state==='SUCCEEDED'?'Lượt xử lý đã kết thúc':status.job.state==='DEAD_LETTER'?'Đã hết lượt thử':status.active?'Đang chờ kết quả · cập nhật mỗi 2 giây':status.label} · Lần thử ${status.job.attempts||0}/${status.job.max_attempts||3}`,'workflow-job-note');head.append(note);}
   if(w.state==='WAITING_CLARIFICATION')head.append(elt('p','Mở Phân tích → Câu hỏi cần làm rõ để chọn gợi ý hoặc nhập câu trả lời.','workflow-callout'));
@@ -177,21 +184,36 @@ function renderWorkflow(){
   }),'quiet'));
   root.append(head);
   // Quality & FinOps are read-only, request-scoped metrics; no source text is transmitted to the dashboard.
-  const qualityPanel=panel('Quality Intelligence v3.4','Kiểm tra xác định bằng chứng và truy vết; không chứng nhận tính đúng nghiệp vụ.');
+  const qualityPanel=panel('Chất lượng & chi phí AI','Kiểm tra xác định bằng chứng và truy vết; không chứng nhận tính đúng nghiệp vụ.');
   qualityPanel.append(elt('p','Đang tải các chỉ số chất lượng...'));
   root.append(qualityPanel);
   Promise.all([api(`/api/projects/${p.id}/quality`),api(`/api/projects/${p.id}/quality/ai`),api(`/api/projects/${p.id}/quality/history`)]).then(([q,ai,history])=>{
     if(!qualityPanel.isConnected||state.project?.id!==p.id)return;
-    qualityPanel.replaceChildren(elt('h3','Quality Intelligence v3.4'));
-    const summary=elt('div',null,'metrics');
-    add(summary,metric(q.scorePercent===null?'—':q.scorePercent+'%','Quality proxy'),metric(q.decision,'Gate decision'),metric(q.findings.length,'Findings'),metric(ai.calls,'AI calls'));
+    qualityPanel.classList.add('quality-dashboard');
+    const heading=elt('div',null,'section-heading'),title=elt('div');title.append(elt('span','SỨC KHỎE DỰ ÁN','overline'),elt('h2','Chất lượng & chi phí AI'),elt('p','Theo dõi độ đầy đủ của đặc tả và mức sử dụng AI trong dự án.'));
+    const gateNames={PASS:'Đạt kiểm tra',REVIEW:'Cần rà soát',BLOCK:'Chưa đạt kiểm tra'};
+    const badge=elt('span',gateNames[q.decision]||q.decision,'quality-badge '+(q.decision==='PASS'?'good':q.decision==='BLOCK'?'blocked':'review'));heading.append(title,badge);qualityPanel.replaceChildren(heading);
+    const summary=elt('div',null,'quality-summary');
+    for(const [value,label,note,name] of [[q.scorePercent==null?'—':q.scorePercent+'%','Điểm kiểm tra','Theo tiêu chí tự động','shield'],[q.findings.length,'Điểm cần xem xét','Chi tiết ở bên dưới','search'],[ai.calls,'Lượt sử dụng AI','Các lượt đã được ghi nhận','sparkles'],[ai.knownCostUsd==null?'Chưa xác định':'$'+ai.knownCostUsd,'Chi phí đã biết',ai.unknownCostCalls?`${ai.unknownCostCalls} lượt chưa có chi phí`:'Từ dữ liệu được ghi nhận','document']]){
+      const card=elt('div',null,'quality-kpi'),top=elt('div',null,'quality-kpi-label');top.append(icon(name),elt('span',label));card.append(top,elt('strong',value),elt('small',note));summary.append(card);
+    }
     qualityPanel.append(summary);
-    qualityPanel.append(elt('p',`Evidence: ${q.rates.evidence??'N/A'} · Actor: ${q.rates.actors??'N/A'} · Acceptance: ${q.rates.acceptance??'N/A'} · Trace: ${q.rates.documentTrace??'N/A'}`,'workflow-note'));
-    qualityPanel.append(elt('p',`AI: ${ai.inputTokens??'N/A'} input / ${ai.outputTokens??'N/A'} output tokens · Known cost: ${ai.knownCostUsd===null?'UNKNOWN':'$'+ai.knownCostUsd} · Unknown cost calls: ${ai.unknownCostCalls} · p95 ${ai.p95LatencyMs??'—'}ms`,'workflow-note'));
-    if(q.findings.length)qualityPanel.append(dataTable(['Code','Severity','Requirement'],q.findings.slice(0,20).map(f=>[f.code,f.severity,f.requirementId||'—'])));
-    if(history.length){qualityPanel.append(elt('h3','Quality change history'));qualityPanel.append(dataTable(['Version','Score','Gate'],history.slice(0,8).map(h=>['v'+h.version,h.score===null?'N/A':Math.round(h.score*100)+'%',h.decision])));}
-    if(q.enforceable&&!q.passed)qualityPanel.append(elt('p','QUALITY GATE ENABLED: chỉnh sửa nguồn/requirement và chạy lại trước khi sinh deliverables.','workflow-note'));
-    qualityPanel.append(elt('small','Điểm số và giá đã biết không bao gồm đánh giá ngữ nghĩa của BA hoặc chi phí model không có usage/pricing.'));
+    const columns=elt('div',null,'quality-columns'),coverage=elt('section',null,'quality-section'),usage=elt('section',null,'quality-section');
+    coverage.append(elt('h3','Độ phủ yêu cầu'),elt('p','Những thành phần đã có trong đặc tả.','subtle'));
+    for(const [key,label] of [['evidence','Bằng chứng nguồn'],['actors','Vai trò sử dụng'],['acceptance','Tiêu chí nghiệm thu'],['documentTrace','Truy vết tài liệu']]){
+      const rate=q.rates[key],row=elt('div',null,'coverage-item'),line=elt('div',null,'coverage-label');line.append(elt('span',label),elt('b',rate==null?'Chưa có dữ liệu':Math.round(rate*100)+'%'));row.append(line);
+      if(rate!=null){const bar=elt('div',null,'coverage-track'),fill=elt('span');fill.style.width=Math.min(100,Math.max(0,rate*100))+'%';bar.setAttribute('aria-hidden','true');bar.classList.toggle('incomplete',rate<1);bar.append(fill);row.append(bar)}coverage.append(row);
+    }
+    usage.append(elt('h3','Sử dụng AI'),elt('p','Chỉ hiển thị số liệu được hệ thống ghi nhận.','subtle'));
+    const usageList=elt('dl',null,'usage-list');
+    for(const [label,value] of [['Token đầu vào',ai.inputTokens==null?'Chưa xác định':ai.inputTokens.toLocaleString('vi-VN')],['Token đầu ra',ai.outputTokens==null?'Chưa xác định':ai.outputTokens.toLocaleString('vi-VN')],['Thời gian phản hồi p95',ai.p95LatencyMs==null?'Chưa có dữ liệu':(ai.p95LatencyMs/1000).toLocaleString('vi-VN',{maximumFractionDigits:1})+' giây'],['Số lượt trong mẫu p95',ai.p95SampleSize??'Chưa có dữ liệu']]){const row=elt('div');row.append(elt('dt',label),elt('dd',value));usageList.append(row)}usage.append(usageList);
+    const hint=elt('p',null,'quality-info');hint.append(icon('document'),elt('span','Thiếu dữ liệu token hoặc bảng giá thì tổng chi phí vẫn chưa xác định.'));usage.append(hint);columns.append(coverage,usage);qualityPanel.append(columns);
+    const findingNames={NO_FUNCTIONAL_REQUIREMENTS:'Chưa có yêu cầu chức năng',UNTRUSTED_CONFIRMED_EVIDENCE:'Bằng chứng nguồn cần xác minh',ACTOR_MISSING:'Thiếu vai trò sử dụng',AC_MISSING:'Thiếu tiêu chí nghiệm thu',GOAL_UNMAPPED:'Chưa liên kết mục tiêu',DOC_TRACE_MISSING:'Thiếu truy vết tài liệu',HIGH_CLARIFICATIONS_PENDING:'Còn câu hỏi ưu tiên cao',BA_REVIEW_REQUIRED:'Cần BA rà soát'};
+    if(q.findings.length){const detail=elt('details',null,'quality-details');detail.open=q.decision==='BLOCK';const toggle=elt('summary');toggle.append(elt('span','Các điểm cần xem xét'),elt('span',q.findings.length+' mục','pill'));detail.append(toggle,dataTable(['Nội dung','Mức độ','Yêu cầu'],q.findings.slice(0,20).map(f=>{const label=elt('div');label.append(elt('strong',findingNames[f.code]||f.code),elt('small',f.code));return [label,elt('span',f.severity==='BLOCK'?'Cần xử lý':f.severity==='WARN'?'Cần rà soát':f.severity,'quality-badge '+(f.severity==='BLOCK'?'blocked':'review')),f.requirementId||'Toàn dự án']})));if(q.findings.length>20)detail.append(elt('small',`Hiển thị 20/${q.findings.length} mục. Xem thêm trong tab Phân tích.`));qualityPanel.append(detail)}
+    if(history.length){const detail=elt('details',null,'quality-details');detail.append(elt('summary','Lịch sử kiểm tra'),dataTable(['Phiên bản','Điểm kiểm tra','Kết quả'],history.slice(0,8).map(h=>['v'+h.version,h.score==null?'—':Math.round(h.score*100)+'%',gateNames[h.decision]||h.decision])));qualityPanel.append(detail)}
+    if(q.enforceable&&!q.passed)qualityPanel.append(elt('p','Cổng kiểm tra đang bật: cần cập nhật nguồn hoặc yêu cầu và chạy lại trước khi tạo tài liệu.','note'));
+    qualityPanel.append(elt('p','Điểm kiểm tra tự động không thay thế đánh giá nghiệp vụ của BA hoặc phê duyệt của khách hàng.','quality-footnote'));
+
   }).catch(e=>{if(qualityPanel.isConnected)qualityPanel.append(elt('p','Không tải được quality metrics: '+e.message));});
   if(p.brainstorm){
     const bs=panel('Brainstorming — DRAFT','Chỉ là giả thuyết, không phải yêu cầu được xác nhận.');
@@ -202,7 +224,7 @@ function renderWorkflow(){
     root.append(bs);
   }
   if(p.analysis){
-    const q=panel('Quality & Gap Analysis','Chỉ số completeness kiểm tra theo quy tắc; không thay cho semantic evaluation hoặc khách hàng ký duyệt.');
+    const q=panel('Điểm cần làm rõ','Chỉ số completeness kiểm tra theo quy tắc; không thay cho semantic evaluation hoặc khách hàng ký duyệt.');
     const m=w.gapReport||{};q.append(dataTable(['Metric','Giá trị'],[
       ['Functional requirements',m.frCount??p.analysis.functionalRequirements?.length??0],
       ['Confirmed FR có chứng cứ',m.confirmedEvidenceRate===undefined?'—':Math.round(100*m.confirmedEvidenceRate)+'%'],
@@ -228,7 +250,7 @@ function renderWorkflow(){
     root.append(q);
   }
   if(w.stage==='BA_REVIEW'&&w.state==='WAITING_BA_REVIEW'){
-    const review=panel('Human BA Approval','BA phải xem và phê duyệt kết quả phân tích trước khi sinh tài liệu. Không phải customer approval.');
+    const review=panel('Rà soát của BA','BA phải xem và phê duyệt kết quả phân tích trước khi sinh tài liệu. Không phải customer approval.');
     review.append(button('Mở biểu mẫu BA Review',()=>setTab('analysis'),'primary'));root.append(review);
   }
 
@@ -236,7 +258,7 @@ function renderWorkflow(){
 
 function panel(title,subtitle){const p=elt('section',null,'panel');const h=elt('div',null,'section-heading');const div=elt('div');add(div,elt('h2',title),elt('p',subtitle));h.append(div);p.append(h);return p}
 function metric(number,caption){return add(elt('div',null,'metric'),elt('b',number),elt('span',caption))}
-function dataTable(headers,rows){const t=elt('table',null,'data-table'),head=elt('thead'),body=elt('tbody'),tr=elt('tr');for(const h of headers)tr.append(elt('th',h));head.append(tr);for(const row of rows){const r=elt('tr');for(const cell of row){const d=elt('td');if(cell instanceof Node)d.append(cell);else d.textContent=String(cell??'');r.append(d)}body.append(r)}add(t,head,body);return t}
+function dataTable(headers,rows){const t=elt('table',null,'data-table'),head=elt('thead'),body=elt('tbody'),tr=elt('tr');for(const h of headers)tr.append(elt('th',h));head.append(tr);for(const row of rows){const r=elt('tr');for(const cell of row){const d=elt('td');if(cell instanceof Node)d.append(cell);else d.textContent=String(cell??'');r.append(d)}body.append(r)}add(t,head,body);const scroll=elt('div',null,'table-scroll');scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-label','Bảng dữ liệu: '+headers.join(', '));scroll.append(t);return scroll}
 function renderERPProfile(p,root){
  const profile=p.solutionProfile||{domain:'general',strategy:'undecided',candidates:[],processAreas:[]};
  const panelEl=panel('ERP Solution Strategy — Build / Open Source / Hybrid','Candidate platforms are proposals, NOT technologies already installed. ERP Fit–Gap must be validated against exact version and edition.');
@@ -426,9 +448,9 @@ function renderFigmaPanel(p){const figmaPanel=panel('Vẽ prototype trên Figma'
   for(const screen of state.figmaDesign.screens||[]){const card=elt('article',null,'figma-screen-card');const info=elt('div',null,'figma-screen-info');info.append(elt('span',screen.screenId,'pill'),elt('h3',p.prototype.screens.find(x=>x.id===screen.screenId)?.title||screen.screenId),elt('p','Yêu cầu liên quan: '+screen.requirementIds.join(', '),'trace'));const image=document.createElement('img');image.src=screenPreviewUrl(p.id,screen.screenId);image.alt=`Bản xem trước ${screen.screenId}`;image.loading='lazy';image.className='figma-preview';const link=document.createElement('a');link.className='quiet';link.target='_blank';link.rel='noopener noreferrer';link.href=`https://www.figma.com/design/${encodeURIComponent(state.figmaDesign.documentKey)}?node-id=${encodeURIComponent(screen.nodeId)}`;link.textContent='Mở frame trên Figma';info.append(link);card.append(info,image);figmaPanel.append(card)}
   figmaPanel.append(elt('label','Nhận xét duyệt','figma-review-label'),notes);const actions=elt('div',null,'actions');actions.append(button('Yêu cầu chỉnh sửa',()=>work(()=>submitFigmaReview('REQUEST_CHANGES',notes.value)),'secondary'),button('Duyệt design',()=>work(()=>submitFigmaReview('APPROVE',notes.value)),'primary'));figmaPanel.append(actions);
  }
- const approved=approvedGalleryScreens(state.figmaDesign);if(approved.length){const gallery=elt('section',null,'figma-gallery');gallery.append(elt('h3','Figma design đã duyệt'),elt('p','Các màn hình này đã được BA Studio chấp nhận cho gallery prototype. Trạng thái này không phải customer sign-off.','subtle'));for(const screen of approved){const card=elt('article',null,'figma-screen-card approved');const info=elt('div',null,'figma-screen-info');info.append(elt('span',screen.screenId,'pill good'),elt('h4',p.prototype.screens.find(x=>x.id===screen.screenId)?.title||screen.screenId),elt('p','Yêu cầu liên quan: '+screen.requirementIds.join(', '),'trace'));const image=document.createElement('img');image.src=screenPreviewUrl(p.id,screen.screenId);image.alt=`Màn hình Figma đã duyệt ${screen.screenId}`;image.loading='lazy';image.className='figma-preview';const link=document.createElement('a');link.className='quiet';link.target='_blank';link.rel='noopener noreferrer';link.href=`https://www.figma.com/design/${encodeURIComponent(state.figmaDesign.documentKey)}?node-id=${encodeURIComponent(screen.nodeId)}`;link.textContent='Mở frame trên Figma';card.append(info,image,link);gallery.append(card)}figmaPanel.append(gallery);const editLabel=elt('label','Chỉnh sửa design đã duyệt','figma-review-label');editLabel.htmlFor='figma-approved-edit-notes';const editNotes=elt('textarea');editNotes.id='figma-approved-edit-notes';editNotes.maxLength=3000;editNotes.placeholder='Mô tả màn hình và điểm cần chỉnh sửa';const editActions=elt('div',null,'actions');editActions.append(button('Chỉnh sửa design đã duyệt',()=>work(async()=>{if(!editNotes.value.trim())throw new Error('Vui lòng mô tả nội dung cần chỉnh sửa.');await submitFigmaReview('REQUEST_CHANGES',editNotes.value)}),'secondary'));figmaPanel.append(editLabel,editNotes,elt('p','Yêu cầu chỉnh sửa sẽ tạo bản design mới để duyệt lại. Bản đã duyệt và các frame trước vẫn được lưu trong lịch sử.','subtle'),editActions)}
+ const approved=approvedGalleryScreens(state.figmaDesign);if(approved.length){const gallery=elt('section',null,'figma-gallery');gallery.append(elt('h3','Thiết kế Figma đã duyệt'),elt('p','Các màn hình này đã được BA Studio chấp nhận cho gallery prototype. Trạng thái này không phải customer sign-off.','subtle'));for(const screen of approved){const card=elt('article',null,'figma-screen-card approved');const info=elt('div',null,'figma-screen-info');info.append(elt('span',screen.screenId,'pill good'),elt('h4',p.prototype.screens.find(x=>x.id===screen.screenId)?.title||screen.screenId),elt('p','Yêu cầu liên quan: '+screen.requirementIds.join(', '),'trace'));const image=document.createElement('img');image.src=screenPreviewUrl(p.id,screen.screenId);image.alt=`Màn hình Figma đã duyệt ${screen.screenId}`;image.loading='lazy';image.className='figma-preview';const link=document.createElement('a');link.className='quiet';link.target='_blank';link.rel='noopener noreferrer';link.href=`https://www.figma.com/design/${encodeURIComponent(state.figmaDesign.documentKey)}?node-id=${encodeURIComponent(screen.nodeId)}`;link.textContent='Mở frame trên Figma';card.append(info,image,link);gallery.append(card)}figmaPanel.append(gallery);const editLabel=elt('label','Chỉnh sửa design đã duyệt','figma-review-label');editLabel.htmlFor='figma-approved-edit-notes';const editNotes=elt('textarea');editNotes.id='figma-approved-edit-notes';editNotes.maxLength=3000;editNotes.placeholder='Mô tả màn hình và điểm cần chỉnh sửa';const editActions=elt('div',null,'actions');editActions.append(button('Chỉnh sửa design đã duyệt',()=>work(async()=>{if(!editNotes.value.trim())throw new Error('Vui lòng mô tả nội dung cần chỉnh sửa.');await submitFigmaReview('REQUEST_CHANGES',editNotes.value)}),'secondary'));figmaPanel.append(editLabel,editNotes,elt('p','Yêu cầu chỉnh sửa sẽ tạo bản design mới để duyệt lại. Bản đã duyệt và các frame trước vẫn được lưu trong lịch sử.','subtle'),editActions)}
  figmaPanel.append(elt('p','HTML prototype bên dưới tiếp tục là wireframe click-through riêng. Duyệt design Figma không đồng nghĩa với phê duyệt yêu cầu của khách hàng.','subtle'));return figmaPanel}
-function renderPrototype(){const p=state.project,root=$('prototype-content');root.replaceChildren();if(!p.prototype?.screens?.length){root.append(add(elt('div',null,'empty-block'),elt('h3','Prototype chưa được tạo'),elt('p','Cần BA review và chọn “Tạo BRD · SRS · Prototype” ở tab Phân tích.')));return}const head=panel('Interactive prototype','Click-through wireframe, dữ liệu demo, chưa kết nối backend.');head.querySelector('.section-heading').append(button('↓ Tải prototype.html',()=>work(()=>download(`/api/projects/${p.id}/export/prototype.html`)),'primary'));
+function renderPrototype(){const p=state.project,root=$('prototype-content');root.replaceChildren();if(!p.prototype?.screens?.length){root.append(add(elt('div',null,'empty-block'),elt('h3','Prototype chưa được tạo'),elt('p','Cần BA review và chọn “Tạo BRD · SRS · Prototype” ở tab Phân tích.')));return}const head=panel('Prototype của dự án','Click-through wireframe, dữ liệu demo, chưa kết nối backend.');head.querySelector('.section-heading').append(button('↓ Tải prototype.html',()=>work(()=>download(`/api/projects/${p.id}/export/prototype.html`)),'primary'));
 head.append(renderFigmaPanel(p));const layout=elt('div',null,'prototype-layout');const nav=elt('nav',null,'screen-nav'),content=elt('div'),phone=elt('div',null,'phone-frame');add(content,elt('div','','trace'),phone);add(layout,nav,content);head.append(layout);root.append(head);
 const screens=p.prototype.screens;let active=screens[0].id;function show(id){const screen=screens.find(x=>x.id===id);if(!screen)return;active=id;nav.replaceChildren();for(const scr of screens){const b=elt('button',null,scr.id===active?'active':'');add(b,elt('span',scr.title),elt('small',scr.id));b.onclick=()=>show(scr.id);nav.append(b)}content.querySelector('.trace').textContent=screen.id+' · '+screen.requirementIds.join(', ')+' • '+screen.description;phone.replaceChildren();for(const comp of screen.components){let item,control;switch(comp.type){case 'heading':item=elt('h2',comp.label);break;case 'paragraph':item=elt('p',comp.label);break;case 'card':item=elt('div',comp.label,'ui-card');break;case 'badge':item=elt('span',comp.label,'badge');break;case 'button':item=button(comp.label,()=>{if(comp.actionTarget)show(comp.actionTarget);else toast('Chỉ là wireframe; thao tác nghiệp vụ chưa được triển khai.')} ,'');break;case 'input':case 'textarea':case 'select':{item=elt('div',null,'ui-element');item.append(elt('label',comp.label));if(comp.type==='textarea')control=document.createElement('textarea');else if(comp.type==='select'){control=document.createElement('select');for(const opt of comp.options){const op=elt('option',opt);op.value=opt;control.append(op)}}else{control=document.createElement('input');control.type='text'}control.placeholder=comp.placeholder;control.value=comp.value;item.append(control);break}default:item=elt('p',comp.label)}phone.append(item)}}show(active)}
 async function analyze(){const p=state.project;toast('Đang phân tích yêu cầu...');const next=await api(`/api/projects/${p.id}/analyze`,'POST',{});await selectProject(next);toast('Đã tạo bản phân tích và Open Questions.')}
@@ -440,3 +462,11 @@ $('reanalyze-btn').onclick=()=>work(async()=>{if(!confirm('Phân tích lại s�
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 api('/api/status').then(s=>{$('mode-indicator').textContent=s.demo?'● DEMO MODE — No API key':'● LIVE AI / '+s.provider+' — '+s.model}).catch(e=>toast(e.message,true));
 loadProjects({restore:true}).catch(e=>toast(e.message,true));
+
+// Shell interactions only: existing project mutations remain in their original handlers.
+document.querySelectorAll('[data-icon]').forEach(el=>{const graphic=icon(el.dataset.icon);if(el.classList.length){el.replaceChildren(graphic);el.removeAttribute('data-icon')}else el.replaceWith(graphic)});
+$('page-title').tabIndex=-1;
+$('project-search').addEventListener('input',filterProjectList);
+$('nav-toggle').onclick=()=>{const open=$('workspace-navigation').classList.toggle('is-open');$('nav-toggle').setAttribute('aria-expanded',String(open));$('nav-toggle').setAttribute('aria-label',open?'Đóng danh sách dự án':'Mở danh sách dự án')};
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('workspace-navigation').classList.contains('is-open')){closeNavigation();$('nav-toggle').focus()}});
+document.querySelector('.upload').addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();$('brief-file').click()}});

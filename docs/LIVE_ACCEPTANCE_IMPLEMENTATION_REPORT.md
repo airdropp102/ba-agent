@@ -1,4 +1,4 @@
-# BA Studio v3.4 — Live Acceptance Validation Implementation Report
+# BA Studio — Live Acceptance Validation Implementation Report
 
 **Date:** 2026-10-13  
 **Base:** BA Studio v3.4 Production Validation & Quality Intelligence  
@@ -29,7 +29,7 @@ An earlier parallel `npm test` run had one intermittent v3-api server-start read
 - `scripts/figma-crosscheck.mjs`: independent read-only `GET /v1/files/{key}/nodes?ids=...` to Figma with an operator-provided prior LIVE MCP report; refuses scope/type/name mismatch and uses a dedicated token. API described by [Figma File Endpoints](https://developers.figma.com/docs/rest-api/file-endpoints/).
 - `tests/v34-live-acceptance.test.js`, `tests/v34-live-cli.test.js`: positive fixture protocols and negative tests for forged/missing labels, low recall, unsupported requirements, disagreement, tampering, raw evidence, missing/stale/wrong Figma proof, missing scoped visual QA and synthetic corpus admission.
 - `eval/live-gold-template.json`: **intentionally synthetic and invalid** production example (never use as actual gold). `eval/live-visual-qa-template.json`: blank approval form.
-- `docs/LIVE_ACCEPTANCE_V3_4.md`, AGENTS.md, README.md, `.env.example`, `.gitignore`, NPM scripts.
+- `docs/LIVE_ACCEPTANCE.md`, AGENTS.md, README.md, `.env.example`, `.gitignore`, NPM scripts.
 
 ## Intended real acceptance protocol
 
@@ -50,7 +50,7 @@ BA visual QA / spec signoff ──────┘│
 
 Defaults for final release: FR recall ≥90%; NFR recall ≥85%; BA-adjudicated unsupported requirement rate ≤3%; raw confirmed quotation grounding ≥99%; exact reviewer judgment agreement ≥80%; zero unresolved judgments; valid live scoped MCP + REST proof ≤24 hours old; separate scope-matched BA visual QA ≤30 days old; and zero unattempted/failed cases. These policy thresholds are proposals pending team acceptance, **not measurements of BA Studio on real data**.
 
-**Operator must still:** anonymize and label representative cases with two reviewers and a recorded adjudicator; approve input transfer; configure logged-in Codex/OpenAI; connect read-only Figma MCP and a REST read token with file-content-read access; run probes on an approved test file; complete BA visual QA; issue a release decision after reviewing all failures and metrics. See `docs/LIVE_ACCEPTANCE_V3_4.md` for complete executable commands.
+**Operator must still:** anonymize and label representative cases with two reviewers and a recorded adjudicator; approve input transfer; configure logged-in Codex/OpenAI; connect read-only Figma MCP and a REST read token with file-content-read access; run probes on an approved test file; complete BA visual QA; issue a release decision after reviewing all failures and metrics. See `docs/LIVE_ACCEPTANCE.md` for complete executable commands.
 
 ## Verification run
 

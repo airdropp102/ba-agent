@@ -1,6 +1,6 @@
-# BA Studio v3.8 — ERP Business Analysis & Build/Adopt/Hybrid
+# BA Studio — ERP Business Analysis & Build/Adopt/Hybrid
 
-Release: 2026-10-13. Base v3.7. **Status: implemented and offline tested; not certified as Senior ERP BA.**
+Current implementation guide. **Offline tests do not certify ERP domain expertise or vendor feature availability.**
 
 ## Key distinction
 
@@ -8,7 +8,7 @@ Release: 2026-10-13. Base v3.7. **Status: implemented and offline tested; not ce
 - `solutionProfile`: business domain (`general` or `erp`), potential strategy (`undecided`, `custom`, `open-source`, `hybrid`, `commercial`), platform **candidates**, and business process scope.
 - `erpFitGap`: append-only human attestations for a requirement + a shortlisted platform and exact version/edition. `UNASSESSED` by default; AI never autonomously records FIT.
 
-## Verified reference editions
+## Catalog reference editions
 
 - `odoo-community`: Odoo Community; LGPLv3; open source. https://www.odoo.com/documentation/19.0/legal/licenses.html
 - `erpnext`: ERPNext; GPLv3; open source. https://docs.frappe.io/erpnext/open-source
@@ -21,7 +21,7 @@ These are **catalog attributes**, not assertions about installed modules, local 
 ```text
 Customer brief + ERP profile (per project)
     → ERP discovery questions (As-Is/To-Be, roles/controls/migration/integration)
-    → Source-grounded BA analysis (same v3.7 canonical model)
+    → Source-grounded BA analysis (current canonical model)
     → Human Fit–Gap requirement x platform with version/edition and evidence
     → Draft 1–3 alternatives (standard/configure/build/hybrid)
     → BA/customer choice (operator-attested, NOT signed baseline)

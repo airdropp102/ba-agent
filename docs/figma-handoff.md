@@ -1,60 +1,6 @@
-# BA Studio → Figma v3 (operator-controlled)
+# Tích hợp Figma: vẽ, duyệt và chỉnh sửa prototype
 
-The workflow uses **UI UX Pro Max** to guide design choices and **TalkToFigma MCP** through logged-in Codex CLI to create editable Figma nodes. It does not guarantee native Figma prototype reactions.
-
-1. Analyze → BA Review; export canonical JSON, BRD/SRS, manifest.
-2. `node scripts/figma-design.mjs --project UUID --platform web` writes files into `DATA_DIR/projects/UUID/04-figma/exports/vVERSION-web/`. The additional `figma-publish-plan.json` lists actions for each SCR-ID and content fingerprint.
-3. Open the intended Figma document with Edit access; connect Figma plugin to local WebSocket, select its channel. Extract file key from Figma document URL.
-4. `node scripts/figma-design.mjs --project UUID --platform web --publish --channel CHANNEL --figma-file FILE_KEY` invokes Codex. It tells the agent to stop if required MCP tools are unavailable, and instructs it to draw only `create` actions into a new section, report verified Node IDs and never delete previous designs.
-5. The backend checks `figma-run-report.json` against the proposed plan and writes a file-key-scoped registry `DATA_DIR/projects/UUID/04-figma/registry/FILE_KEY.json` only if every newly created screen has an agent-reported verified node ID.
-6. Re-running with the same unchanged manifest skips already registered screens. Modified screens create versioned replacement frames; old frames are not deleted. **Review leftovers/retired screens in Figma manually.**
-
-### Cautions
-
-- File key comes from the operator command and agent report. The current MCP may not expose an independently verifiable file key, so visual verification of the open document by the operator remains mandatory.
-- `verified=true` is a claim in Codex's structured tool report. Application code cannot prove that Figma MCP actually created that node; open Figma and check its node ID/appearance.
-- A crash after node creation but before registry update may create duplicates on retry. Inspect Figma before repeating a failed publish.
-- Existing registry may become stale if frames are deleted/edited manually. Back up registry and reconcile manually; the workflow does not perform destructive cleanup.
-- Use HTTPS/VPN for remote access and never store a Figma channel in Git.
-- CLI and MCP APIs can change; align tool names with the installed repo versions.
-
-External tools:
-- https://github.com/nextlevelbuilder/ui-ux-pro-max-skill
-- https://github.com/grab/cursor-talk-to-figma-mcp
-
-
-## Configured Codex publish (2026-10-14)
-
-Step 5 uses the same structured Codex runner as BA analysis. `.env` supplies
-`CODEX_BIN` and optional `CODEX_MODEL`; the model is passed explicitly using
-`--model`, without changing the global Codex configuration. No OpenAI API key is
-required for a ChatGPT-authenticated CLI. `CODEX_FIGMA_TIMEOUT_MS` independently
-controls publish duration (default 600000, capped at 600000). The analysis timeout
-`CODEX_TIMEOUT_MS` remains separate.
-
-The CLI runs with a read-only sandbox in the reviewed design-pack directory so it
-can read BRD/SRS/canonical/manifest. Schema/output files remain temporary. Console
-progress uses `[BA Progress]` with project, stage, model, PID, elapsed time, byte
-counts and a heartbeat every 15 seconds. Raw prompts, model reasoning and MCP
-arguments/results are not printed. Timeout and host signals terminate the POSIX
-CLI process group. No automatic publish retry is added: inspect Figma for any
-frames created before a failure before explicitly trying again.
-
-A fresh report is persisted only after JSON/schema validation, report-to-plan
-checks, a current project-version check and an unchanged registry check. The final
-commit holds a short project lease and performs checks/renames inside a SQLite
-transaction fence against cooperating API/worker/publish writers. The two filesystem
-renames are not crash-atomic; inspect artifacts and Figma after an I/O failure. Invalid/stale reports do not replace
-the file-scoped registry or delete a prior accepted report. A retained report is
-previous evidence, not success for a failed retry. Accepted reports still represent operator claims;
-independent read-back and human visual QA remain required. The offline tests use
-mock CLI processes and temporary fixture projects, never live Figma nodes.
-
-This optimization does not install UI UX Pro Max, TalkToFigma or the Figma plugin.
-The existing script still requires those tools and an operator-verified file and
-channel. Merely having an official Figma MCP configured does not establish the
-TalkToFigma tool contract required by this script.
-
+Luồng hiện hành bắt đầu trong tab **Prototype**, sau BA Review và khi requirements không chờ refresh. Codex dùng **UI UX Pro Max** để định hướng thiết kế, **TalkToFigma MCP** để tạo frame chỉnh sửa được. Workflow BA kết thúc ở DELIVERABLES; gallery chỉ hiển thị bản đã duyệt.
 
 ## BA Studio local relay setup
 
@@ -68,7 +14,7 @@ The relay protocol is pinned to `grab/cursor-talk-to-figma-mcp` revision `ddd90f
 
 The Prototype tab exposes the managed local relay and version-bound design review. Click **Start socket cursor-talk-to-figma-mcp** to run the bundled relay at `127.0.0.1:3055`. This route is disabled when BA Studio binds to a non-loopback host. Bun must be installed; set `BUN_BIN` if it is not available on PATH.
 
-The user opens the target Figma file, starts TalkToFigma and connects it to the relay manually. BA Studio does not open the Figma plugin or infer its channel. The user enters the HTTPS Figma file link and the channel ID shown by the connected plugin. On Continue, BA Studio queues a single-attempt Figma design job. The worker runs a read-only channel/file preflight, builds editable frames with Codex + UI UX Pro Max, verifies frame reports, exports bounded JPEG previews and stores them under `DATA_DIR/projects/<uuid>/04-figma/exports/v<version>-<platform>/previews/<run UUID>/`.
+The user opens the target Figma file, starts TalkToFigma and connects it to the relay manually. BA Studio does not open the Figma plugin or infer its channel. The user enters the HTTPS Figma file link and the channel ID shown by the connected plugin. On Continue, BA Studio queues a single-attempt Figma design job. The worker runs a read-only channel/file preflight, builds editable frames with Codex + UI UX Pro Max, verifies frame reports, exports bounded PNG/JPEG previews and stores them under `DATA_DIR/projects/<uuid>/04-figma/exports/v<version>-<platform>/previews/<run UUID>/`.
 
 The Prototype tab displays the generated draft by screen with the FR IDs, preview and Figma frame link. The reviewer can approve the exact manifest digest and project version, or request changes and send a revision back to the same connected channel. Only the approved screen set appears in the approved Figma gallery. These design decisions remain separate from BA Review and customer sign-off. The HTML click-through prototype stays available alongside the Figma gallery.
 
@@ -95,3 +41,17 @@ The approved gallery includes an explicit edit request with required feedback. R
 The BA workflow now ends at `DELIVERABLES` with state `COMPLETED`. It no longer schedules a separate Figma Design Pack or manual Figma publish stage. The Workflow UI links to Prototype, which owns setup, drawing, revision and version-bound design review. Drawing still prepares its internal grounded handoff on demand.
 
 Existing manual-run checkpoints, files, approvals and registry history remain stored. Historical manual API routes remain compatible for existing integrations, but no longer appear as actions in the application. Viewing an old project does not migrate or replay its workflow.
+
+## Runner, registry và giới hạn giao dịch
+
+`src/figma-publisher.js` chuẩn bị grounded handoff nội bộ rồi chạy Codex với `CODEX_BIN`, optional `CODEX_MODEL` và timeout riêng `CODEX_FIGMA_TIMEOUT_MS` (tối đa 600000 ms). Shell sandbox read-only; quyền MCP được cấp riêng theo allowlist. Progress log chỉ ghi metadata và heartbeat, không ghi prompt/MCP payload. Timeout kết thúc process group.
+
+Report phải qua schema, đối chiếu plan, project version và registry hiện hành. Registry scoped theo file key trong `04-figma/registry/FILE_KEY.json`. Screen không đổi được skip; thay đổi tạo frame mới, giữ frame cũ. Version fence và lease bảo vệ commit của các writer hợp tác, nhưng filesystem rename và Figma side effects không atomic với SQLite. Crash sau tạo node trước lưu registry có thể để lại frame trùng khi thử lại.
+
+Node ID và `verified=true` trong operator report không tự chứng minh độc lập rằng frame tồn tại/đúng. Cần kiểm tra trực tiếp và human visual QA; acceptance độc lập dùng read-back riêng theo [LIVE_ACCEPTANCE](LIVE_ACCEPTANCE.md). Native prototype navigation và customer signoff không được suy ra từ approval gallery.
+
+## Tương thích tích hợp cũ
+
+Các API manual và `scripts/figma-design.mjs` vẫn tồn tại cho integration cũ; không còn là bước bắt buộc hoặc panel thao tác trong UI. Script có thể tạo handoff với `--project UUID --platform web`; publish cần thêm `--publish --channel CHANNEL --figma-file FILE_KEY` và mọi approval/preflight liên quan. Không chạy script để replay checkpoint đã hoàn tất. Lịch sử cũ giữ nguyên để audit, không được xem là approval của revision mới.
+
+Xem thêm [workflow](WORKFLOWS.md), [API](API.md) và [vận hành](OPERATIONS.md).

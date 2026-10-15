@@ -1,10 +1,10 @@
-# BA Studio v3.4 — Live Acceptance Validation (harness extension)
+# BA Studio — Live Acceptance Validation (harness extension)
 
 ## What is implemented vs verified
 
 Implemented and unit-tested: corpus admission checks, actual-provider evaluation runner, restart-safe progress log, human review packet, two independent reviewer decision sheets, human adjudication, traceable semantic recall and unsupported-requirement ratios, raw-model quotation grounding, reviewer-agreement measurement, read-only Figma REST vs MCP-operator cross-check, BA visual QA approval and a strict PASS/FAIL report. No new multi-agent orchestration.
 
-**NOT YET EXECUTED against real services** in the development environment: it has no valid OpenAI API key, Codex CLI login, Figma access token or BA-approved gold corpus. A successful test on mocked fixtures is evidence of **harness logic only**, not a claim of model quality. Do not publish any approval without human and real-service evidence.
+Tài liệu này mô tả harness và điều kiện nghiệm thu, không xác nhận một live acceptance run đã đạt. Trạng thái credential trên máy có thể thay đổi; kiểm tra riêng khi vận hành. Test fixture chỉ chứng minh logic harness. Chỉ công bố acceptance khi có corpus, quyền truyền dữ liệu, kết quả provider thật và bằng chứng review của con người đúng scope.
 
 ## Pre-requisites
 

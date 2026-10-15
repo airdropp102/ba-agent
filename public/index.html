@@ -1,33 +1,44 @@
 <!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BA Studio — From Brief to Blueprint</title><link rel="stylesheet" href="/style.css"></head>
+<meta name="theme-color" content="#f6f7fb"><title>BA Studio — Không gian phân tích nghiệp vụ</title><link rel="stylesheet" href="/style.css"></head>
 <body>
+<a href="#main-content" class="skip-link">Đến nội dung chính</a>
 <div class="app">
-  <aside class="sidebar">
-    <div class="logo"><span class="logo-mark">B<span>●</span></span><div><strong>BA Studio</strong><small>AI REQUIREMENTS WORKSPACE</small></div></div>
-    <div class="sidebar-label">WORKSPACE</div>
-    <button class="side-link active" id="new-project-btn"><span>＋</span> Dự án mới</button>
-    <div class="sidebar-label recent">DỰ ÁN GẦN ĐÂY</div>
-    <div id="project-list" class="project-list"><p class="empty">Chưa có dự án</p></div>
-    <div class="sidebar-footer"><span id="mode-indicator" class="mode">● Checking...</span><small>Local-first · Data stored on your machine</small></div>
+  <aside class="sidebar" id="workspace-navigation" aria-label="Không gian dự án">
+    <div class="logo"><span class="logo-mark" aria-hidden="true">B<span></span></span><div><strong>BA Studio</strong><small>Ý tưởng thành giải pháp</small></div><button class="nav-toggle quiet" id="nav-toggle" aria-expanded="false" aria-controls="sidebar-content" aria-label="Mở danh sách dự án"><span data-icon="menu"></span></button></div>
+    <div class="sidebar-content" id="sidebar-content">
+      <div class="sidebar-label">KHÔNG GIAN LÀM VIỆC</div>
+      <button class="side-link" id="new-project-btn"><span data-icon="plus"></span> Dự án mới</button>
+      <div class="sidebar-label recent">DỰ ÁN CỦA BẠN <span id="project-count">0</span></div>
+      <label class="project-search"><span data-icon="search"></span><input id="project-search" type="search" placeholder="Tìm dự án…" aria-label="Tìm dự án"></label>
+      <div id="project-list" class="project-list"><p class="empty">Đang tải dự án…</p></div>
+      <div class="sidebar-tip"><span data-icon="layers"></span><strong>Mọi thứ, cùng một nơi.</strong><p>Từ yêu cầu ban đầu đến tài liệu và prototype của dự án.</p></div>
+      <div class="sidebar-footer"><span id="mode-indicator" class="mode">Đang kiểm tra kết nối…</span><small><span data-icon="shield"></span> Dữ liệu lưu trên máy của bạn</small></div>
+    </div>
   </aside>
-  <main class="main">
-    <header class="topbar"><div><span class="eyebrow">BUSINESS ANALYSIS / AUTOMATION</span><h1 id="page-title">From Brief to Blueprint<span class="dot">.</span></h1><p class="subtitle" id="page-subtitle">Biến yêu cầu khách hàng thành đặc tả rõ ràng và prototype có thể kiểm thử.</p></div><div class="top-chip">✦ AI-assisted BA</div></header>
-    <section id="welcome-view">
-      <div class="intro-grid"><div class="intro-stat"><div class="number">01</div><strong>Analyze</strong><span>Chuẩn hóa yêu cầu · Gap & questions</span></div><div class="intro-stat"><div class="number">02</div><strong>Specify</strong><span>BRD · SRS · Traceability</span></div><div class="intro-stat"><div class="number">03</div><strong>Prototype</strong><span>Wireframe tương tác · HTML</span></div></div>
-      <div class="panel input-panel"><div class="section-heading"><div><span class="overline">NEW PROJECT</span><h2>Yêu cầu khách hàng</h2><p>Nhập brief, email, biên bản họp hoặc dán nội dung từ tài liệu.</p></div><button class="quiet" id="sample-btn">↗ Nạp ví dụ demo</button></div>
-        <form id="create-form"><label for="title-input">Tên dự án</label><input id="title-input" placeholder="VD: Hệ thống quản lý bảo hành" maxlength="160" required>
-          <div class="label-row"><label for="brief-input">Customer brief <span class="required">*</span></label><label class="upload" for="brief-file">↑ Tải .txt / .md</label><input id="brief-file" type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" hidden></div>
-          <textarea id="brief-input" rows="11" placeholder="Dán nội dung yêu cầu khách hàng ở đây...\n\nVí dụ: Ai sử dụng hệ thống? Quy trình hiện tại? Chức năng mong muốn? Business rules?" required minlength="15"></textarea>
-          <div class="form-bottom"><small>Thông tin chưa có sẽ được đưa vào Open Questions, không tự suy diễn thành yêu cầu đã xác nhận.</small><button type="submit" class="primary" id="create-btn">Tạo dự án & chạy workflow <span>→</span></button></div>
+  <main class="main" id="main-content" tabindex="-1">
+    <div class="workspace-bar"><span><span data-icon="grid"></span> Không gian làm việc <span class="breadcrumb-divider">/</span> <b id="location-label">Dự án mới</b></span><span class="workspace-badge"><span class="online-dot"></span> Local workspace</span></div>
+    <div class="main-body">
+    <header class="topbar"><div><span class="eyebrow">RÕ YÊU CẦU. VỮNG GIẢI PHÁP.</span><h1 id="page-title">Bắt đầu từ một ý tưởng<span class="dot">.</span></h1><p class="subtitle" id="page-subtitle">Cùng biến yêu cầu ban đầu thành tài liệu rõ ràng và prototype trực quan.</p></div><div class="top-chip"><span data-icon="sparkles"></span> AI đồng hành cùng BA</div></header>
+    <section id="welcome-view" aria-label="Tạo dự án">
+      <div class="intro-grid"><div class="intro-stat"><div class="number"><span data-icon="search"></span> 01</div><strong>Hiểu đúng yêu cầu</strong><span>Phân tích bối cảnh, làm rõ điều còn thiếu.</span></div><div class="intro-stat"><div class="number"><span data-icon="document"></span> 02</div><strong>Thống nhất đặc tả</strong><span>Rà soát và tạo bộ tài liệu PRD, BRD, SRS.</span></div><div class="intro-stat"><div class="number"><span data-icon="layers"></span> 03</div><strong>Nhìn thấy giải pháp</strong><span>Vẽ, chỉnh sửa và duyệt thiết kế trên Figma.</span></div></div>
+      <div class="welcome-layout"><div class="panel input-panel"><div class="section-heading"><div><span class="overline">BƯỚC ĐẦU TIÊN</span><h2>Kể về dự án của bạn</h2><p>Nhập yêu cầu, email hoặc nội dung buổi trao đổi với khách hàng.</p></div><button class="quiet" id="sample-btn"><span data-icon="sparkles"></span> Dùng ví dụ mẫu</button></div>
+        <form id="create-form"><label for="title-input">Tên dự án <span class="required">*</span></label><input id="title-input" placeholder="Ví dụ: Hệ thống quản lý bảo hành" maxlength="160" required>
+          <div class="label-row"><label for="brief-input">Yêu cầu ban đầu <span class="required">*</span></label><label class="upload" for="brief-file" tabindex="0" role="button"><span data-icon="upload"></span> Tải tài liệu</label><input id="brief-file" type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" hidden></div>
+          <textarea id="brief-input" rows="9" placeholder="Khách hàng muốn giải quyết vấn đề gì? Ai sẽ sử dụng? Những chức năng và quy tắc nào cần có?" required minlength="15" aria-describedby="brief-hint"></textarea>
+          <div class="form-bottom"><small id="brief-hint">Thông tin còn thiếu sẽ được đưa thành câu hỏi để bạn làm rõ.</small><button type="submit" class="primary" id="create-btn">Tạo dự án & chạy workflow <span data-icon="arrow"></span></button></div>
         </form></div>
+        <aside class="welcome-guide"><span class="guide-symbol" data-icon="sparkles"></span><span class="overline">MỘT KHỞI ĐẦU ĐƠN GIẢN</span><h2>Chưa cần một brief hoàn hảo.</h2><p>Bắt đầu với những gì bạn biết. BA Studio sẽ giúp sắp xếp thông tin và tìm ra câu hỏi tiếp theo.</p><ol><li><b>Bối cảnh</b><span>Vấn đề và mục tiêu của khách hàng.</span></li><li><b>Người sử dụng</b><span>Ai tham gia và họ cần làm gì?</span></li><li><b>Kỳ vọng</b><span>Chức năng, quy trình và giới hạn.</span></li></ol><div class="guide-note"><span data-icon="shield"></span><span>Bạn luôn là người rà soát và quyết định trước khi tạo tài liệu.</span></div></aside>
+      </div>
     </section>
     <section id="project-view" hidden>
       <div class="project-heading"><div class="project-id" id="project-id"></div><div class="project-status" id="status-label"></div></div>
-      <div class="steps"><div class="step" data-step="NEW"><span>1</span> Intake</div><div class="step" data-step="ANALYZED"><span>2</span> Analyze</div><div class="step" data-step="REVIEWED"><span>3</span> BA Review</div><div class="step" data-step="GENERATED"><span>4</span> Generate</div></div>
-      <div class="toolbar"><div class="tabs"><button class="tab active" data-tab="workflow">Workflow v3.6</button><button class="tab" data-tab="analysis">Phân tích</button><button class="tab" data-tab="prd">PRD</button><button class="tab" data-tab="brd">BRD</button><button class="tab" data-tab="srs">SRS</button><button class="tab" data-tab="prototype">Prototype</button><button class="tab" data-tab="files">Tài liệu dự án</button></div><div class="toolbar-actions"><button class="quiet" id="reanalyze-btn">↻ Phân tích lại</button></div></div>
+      <div class="steps" aria-label="Tiến trình dự án"><div class="step" data-step="NEW"><span>1</span> Tiếp nhận</div><div class="step" data-step="ANALYZED"><span>2</span> Phân tích</div><div class="step" data-step="REVIEWED"><span>3</span> BA rà soát</div><div class="step" data-step="GENERATED"><span>4</span> Tạo tài liệu</div></div>
+      <div class="toolbar"><nav class="tabs" aria-label="Nội dung dự án"><button class="tab active" data-tab="workflow"><span data-icon="grid"></span> Tổng quan</button><button class="tab" data-tab="analysis"><span data-icon="search"></span> Phân tích</button><button class="tab" data-tab="prd">PRD</button><button class="tab" data-tab="brd">BRD</button><button class="tab" data-tab="srs">SRS</button><button class="tab" data-tab="prototype"><span data-icon="layers"></span> Prototype</button><button class="tab" data-tab="files"><span data-icon="folder"></span> Tài liệu</button></nav><div class="toolbar-actions"><button class="quiet" id="reanalyze-btn"><span data-icon="refresh"></span> Phân tích lại</button></div></div>
       <div id="workflow-content" hidden></div><div id="analysis-content"></div><div id="document-content" hidden></div><div id="prototype-content" hidden></div><div id="files-content" hidden></div>
     </section>
+    <footer class="main-footer"><span>BA Studio</span> Từ yêu cầu đến giải pháp, từng bước rõ ràng.</footer>
+    </div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </main>
 </div><script type="module" src="/app.js"></script>

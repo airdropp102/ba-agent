@@ -1,4 +1,4 @@
-# BA Studio v3.5 — Session Continuity & Context Handoff
+# BA Studio — Session Continuity & Context Handoff
 
 > Status: implemented and tested offline. This is an **engineering agent session** ledger that complements, but does not replace, BA workflow checkpoints and worker leases. No context window usage telemetry is inferred automatically.
 
@@ -48,7 +48,7 @@ Create a private JSON file **outside the version-controlled repository or delete
   "summary": "Implemented session schema and validated the migration",
   "inProgress": "Running integration tests",
   "completed": [
-    {"id": "SCHEMA-1", "title": "Design schema", "artifacts": ["src/session-continuity.js", "docs/SESSION_CONTINUITY_V3_5.md"]}
+    {"id": "SCHEMA-1", "title": "Design schema", "artifacts": ["src/session-continuity.js", "docs/SESSION_CONTINUITY.md"]}
   ],
   "next": ["Run regression", "Review hooks on Claude and Codex"],
   "decisions": ["SQLite remains authoritative; Markdown is only a projection"],
