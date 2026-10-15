@@ -1,5 +1,5 @@
 import {completeDrafts,generateQuestionGroups,selectRecommendedDrafts,uploadDraftAttachments} from './clarification-batch-ui.js';
-import {candidateAllowed,filterQuestions,renderQuestionForm} from './clarification-ui.js';
+import {candidateAllowed,filterQuestions,renderQuestionForm,referencedRequirements} from './clarification-ui.js';
 import {watchWorkflowJob,workflowStatus,elapsedLabel} from './workflow-progress.js';
 import {figmaUiState,approvedGalleryScreens,screenPreviewUrl,projectToRestore,figmaFailureMessage} from './figma-review-ui.js';
 const $ = id => document.getElementById(id);
@@ -7,6 +7,18 @@ const state={project:null,tab:'workflow',busy:false,docCache:{},workflowPlatform
 const stages=['NEW','ANALYZED','REVIEWED','GENERATED'];
 const wfLabels={BRAINSTORM:'Brainstorming',ELICITATION:'Elicitation',GAP_ANALYSIS:'Gap Analysis',CLARIFICATION:'Clarification',BA_REVIEW:'BA Review',DELIVERABLES:'BRD / SRS / Prototype'};
 const statusNames={NEW:'Mới tạo',ANALYZED:'Đã phân tích',REVIEWED:'BA đã rà soát',GENERATED:'Đã sinh tài liệu & prototype'};
+// Cache only the selected project/version; archived data is displayed explicitly as historical.
+let referenceHistoryCache=null;
+function loadRequirementReferences(project,label){
+ const key=`${project.id}:${project.version}`;
+ if(referenceHistoryCache?.key!==key)referenceHistoryCache={key,promise:null};
+ const cache=referenceHistoryCache;
+ cache.promise??=api(`/api/projects/${project.id}/requirement-references`).then(result=>{
+  if(result.projectId!==project.id||result.projectVersion!==project.version)throw Error('Dự án đã thay đổi; tải lại bản phân tích.');
+  return result.requirements;
+ }).catch(error=>{cache.promise=null;throw error;});
+ return cache.promise.then(rows=>referencedRequirements(label,rows).items);
+}
 let toastTimer;
 function toast(message,isError=false){const e=$('toast');e.textContent=message;e.className='toast visible'+(isError?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.className='toast',4500)}
 function elt(tag,text,cls){const el=document.createElement(tag);if(text!==undefined&&text!==null)el.textContent=String(text);if(cls)el.className=cls;return el}
@@ -374,7 +386,7 @@ filter('Trạng thái','questionStatus',[['open','Chưa trả lời'],['resolved
 const visible=filterQuestions(a.clarificationQuestions,state.questionPriority,state.questionStatus);
 for(const item of visible){
  const proposal=(p.clarificationRecommendations||[]).find(x=>x.questionId===item.id&&x.status==='PROPOSED');
- q.append(renderQuestionForm({item,proposal,draft:drafts[item.id]||{},onDraftChange:values=>{drafts[item.id]=values;updateSave();},savedAnswer:[...(p.answers||[])].reverse().find(x=>x.questionId===item.id),elt,button,
+ q.append(renderQuestionForm({item,proposal,requirements:a.functionalRequirements,loadReferences:label=>loadRequirementReferences(p,label),draft:drafts[item.id]||{},onDraftChange:values=>{drafts[item.id]=values;updateSave();},savedAnswer:[...(p.answers||[])].reverse().find(x=>x.questionId===item.id),elt,button,
   onGenerate:()=>work(async()=>{
    toast('Đang tạo gợi ý DRAFT cho '+item.id+'; chờ Codex trả kết quả.');
    const updated=await api(`/api/projects/${p.id}/recommendations/generate`,'POST',{mode:'business',selectionMode:'ba-draft',questionId:item.id});

@@ -81,3 +81,9 @@ for current selected files; removed files are not included in the saved answer.
 ## Lưu trữ và kiểm tra
 
 Project state ở SQLite; projection hiện hành ở `02-requirements/clarification-recommendations.json` và `00-admin/TECH_STACK.json`. Draft trong browser không tồn tại qua reload; quyết định đã lưu tồn tại theo project version. Chạy `npm run eval:recommendations` và `npm run test:serial` để kiểm tra guardrails offline; không suy ra usefulness hoặc semantic accuracy của provider thật từ fixture tests.
+
+## Xem yêu cầu được tham chiếu trong câu hỏi
+
+Mã FR trong tiêu đề câu hỏi có bảng chi tiết khi hover/focus trên desktop hoặc chạm trên mobile. Hỗ trợ mã đơn (`FR-001`), dải rút gọn (`FR-001–018`) và dải đầy đủ (`FR-001–FR-018`), với dấu gạch ngang, en dash hoặc em dash. Nội dung lấy từ `analysis.functionalRequirements` của dự án đang mở, gồm ID, tên, mô tả và actor; không gọi AI để suy diễn nội dung.
+
+Dải nhiều yêu cầu có danh sách cuộn. Mã thiếu hiển thị thông báo rõ ràng; không dùng yêu cầu ở dự án khác để thay thế. Bấm mã giữ bảng mở mà không bật/tắt form câu hỏi; Đóng, Escape hoặc bấm ra ngoài sẽ đóng bảng. Nội dung được render bằng text nodes, không thực thi HTML từ nguồn yêu cầu. Bảng dùng native Popover API của trình duyệt hiện đại để hiển thị trên các vùng cuộn.

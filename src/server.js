@@ -418,6 +418,18 @@ async function handler(req,res){
       if(segments[3]==='quality'&&segments[4]==='ai'&&req.method==='GET')return json(res,store.aiMetrics(p.id));
       if(segments[3]==='quality'&&segments[4]==='history'&&req.method==='GET')return json(res,store.qualityHistory(p.id));
       if(segments[3]==='quality'&&segments.length===4&&req.method==='GET')return json(res,assessDeliverables(p,{policy:qualitySettings}));
+      if(segments[3]==='requirement-references'&&segments.length===4&&req.method==='GET'){
+        const known=new Set((p.analysis?.functionalRequirements||[]).map(r=>r.id));
+        const requirements=[];
+        for(const entry of store.history(p.id).filter(v=>v.archived&&v.version<p.version).sort((a,b)=>b.version-a.version)){
+          const snapshot=store.version(p.id,entry.version);
+          for(const r of snapshot.analysis?.functionalRequirements||[]){
+            if(!/^FR-\d+$/.test(r.id)||known.has(r.id))continue;
+            known.add(r.id);requirements.push({id:r.id,name:r.name,description:r.description,actor:r.actor,historicalVersion:entry.version});
+          }
+        }
+        return json(res,{projectId:p.id,projectVersion:p.version,requirements});
+      }
       if(segments[3]==='history'&&req.method==='GET'){
         if(segments[4]){
           if(!/^\d+$/.test(segments[4]))return error(res,'Invalid history version',400);
