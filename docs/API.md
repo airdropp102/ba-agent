@@ -82,3 +82,7 @@ Review đổi project version. Client phải đọc lại sau mutation, không r
 ## API Figma legacy
 
 `POST /api/projects/:id/workflow/figma/sync`, `/challenge`, `/readback`, `/qa` còn phục vụ dữ liệu và operator tooling cũ. Chúng cần legacy workflow/design state phù hợp; không tạo luồng publish thủ công mới trong UI. Nonce read-back scoped và single-use; visual QA vẫn là BA attestation, không customer signoff. Không gọi chuỗi legacy này để thay thế flow Prototype hiện tại.
+
+## Tra cứu FR lịch sử trong câu hỏi
+
+`GET /api/projects/:id/requirement-references` trả `{projectId, projectVersion, requirements}`. Mỗi item gồm `id`, `name`, `description`, `actor`, `historicalVersion`. Chỉ lấy FR không còn trong analysis hiện tại, chọn snapshot mới nhất chứa đúng mã. Route áp dụng auth/read scope của project, không ghi dữ liệu và không suy luận ID thay thế. UI đối chiếu projectVersion, ưu tiên yêu cầu hiện tại và ghi rõ bản lịch sử. Đây không phải xác nhận ngữ nghĩa của liên kết câu hỏi–FR.

@@ -11,6 +11,16 @@ npm run setup:start
 
 Mở `http://127.0.0.1:3478`. Setup giữ `.env` hiện có, tạo từ `.env.example` nếu chưa có. Máy mới mặc định DEMO offline. Dừng bằng Ctrl+C.
 
+# Stop process
+kill -TERM 18057
+lsof -t ./data/ba-studio.sqlite | sort -u | while read -r ba_pid; do
+  kill -TERM "$ba_pid"
+done
+
+# Delete all project
+npm run project:purge                 # Chỉ xem trước, không xóa
+npm run project:purge -- --confirm  
+
 ## AI và Figma
 
 - AI thật: đặt `DEMO_MODE=false`, chọn `AI_PROVIDER=codex` với CLI đã đăng nhập hoặc `AI_PROVIDER=openai` với API key trong `.env`.

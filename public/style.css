@@ -1632,3 +1632,9 @@ h1{
 @media (pointer: coarse) {
   .question .requirement-reference { display: inline-flex; align-items: center; min-height: 44px; padding: 5px 8px; margin: 4px; }
 }
+
+.process-area-option { display: inline-flex; align-items: center; gap: 4px; margin: 0 14px 8px 0; max-width: 100%; }
+.process-area-option > label { margin: 0 !important; gap: 5px; }
+.process-area-help { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid #cbd5eb; border-radius: 50%; color: #3348b5; background: #eef2ff; font-size: 14px; font-weight: 700; cursor: help; }
+.process-area-help:focus-visible { outline: 3px solid #5268da; outline-offset: 3px; }
+@media (pointer: coarse) { .process-area-help { width: 44px; height: 44px; } }

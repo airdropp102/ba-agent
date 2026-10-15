@@ -90,3 +90,7 @@ Suggested acceptance metrics (targets, not measured results): 100% tested editio
 - Current customer approval remains operator-attested rather than independently signed/verified. For cross-tool ERP/vendor repositories, expose a shared MCP server (usable by Codex/Claude) only when integration is actually needed.
 
 The shortlist UI disables candidates whose distribution does not match `open-source` or `commercial`. Switching strategy deselects incompatible candidates and displays a notice; the project profile changes only on Save. Hybrid/Compare allow either class. General/custom profiles cannot select ERP candidates. Server-side license/strategy guards remain authoritative.
+
+## Business process area help
+
+The profile checklist provides Vietnamese descriptions for all eight process areas. Hover over an area or focus its information button to see scope and discovery questions; on touch devices tap the information button. Details do not toggle the checkbox or save a profile. Escape, Close and outside tap dismiss the popover. Descriptions are general discovery guidance, not confirmed customer requirements or a platform capability claim.

@@ -48,7 +48,36 @@ function referenceEvents(){
  document.addEventListener('pointerdown',event=>{if(activeReference&&!activeReference.panel.contains(event.target)&&!activeReference.trigger.contains(event.target))closeReference();});
  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&activeReference){const trigger=activeReference.trigger;const restore=activeReference.panel.contains(document.activeElement);closeReference();if(restore){trigger.focus();closeReference();}event.preventDefault();}});
  window.addEventListener('resize',closeReference);
- window.addEventListener('scroll',event=>{if(activeReference&&!activeReference.panel.contains(event.target))closeReference();},true);
+ window.addEventListener('scroll',event=>{if(activeReference&&!activeReference.panel.contains(event.target))activeReference.position();},true);
+}
+export function attachDetailPopover({trigger,panel,close,position,onOpen=()=>{},hoverTarget=trigger}){
+  const show=()=>{
+   referenceEvents();
+   if(activeReference?.trigger===trigger){clearTimeout(activeReference.timer);return;}
+   closeReference();panel.hidden=false;panel.showPopover();trigger.setAttribute('aria-expanded','true');
+   activeReference={trigger,panel,pinned:false,timer:null,position};
+   void onOpen();
+   position();
+  };
+  const delayClose=()=>{if(activeReference?.trigger===trigger&&!activeReference.pinned){clearTimeout(activeReference.timer);activeReference.timer=setTimeout(()=>{if(activeReference?.trigger===trigger&&!panel.contains(document.activeElement)&&document.activeElement!==trigger)closeReference();},180);}};
+  hoverTarget.addEventListener('pointerenter',event=>{if(event.pointerType!=='touch')show();});hoverTarget.addEventListener('pointerleave',delayClose);
+  trigger.addEventListener('focus',show);trigger.addEventListener('blur',delayClose);
+  trigger.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(activeReference?.trigger===trigger&&activeReference.pinned){closeReference();return;}show();activeReference.pinned=true;});
+  trigger.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' ')event.stopPropagation();});
+  panel.addEventListener('pointerenter',()=>{if(activeReference?.trigger===trigger)clearTimeout(activeReference.timer);});panel.addEventListener('pointerleave',delayClose);panel.addEventListener('focusout',delayClose);
+  panel.addEventListener('click',event=>event.stopPropagation());
+  close.addEventListener('click',event=>{event.preventDefault();trigger.focus();closeReference();});
+}
+export function processAreaHelp(name,description,hoverTarget,elt){
+ const trigger=elt('button','i','process-area-help');trigger.type='button';
+ const panel=elt('span',null,'requirement-popover');panel.id=`process-area-help-${++referenceSequence}`;panel.hidden=true;panel.setAttribute('popover','manual');panel.setAttribute('role','dialog');panel.setAttribute('aria-label',name);
+ trigger.setAttribute('aria-label',`Giải thích ${name}`);trigger.setAttribute('aria-controls',panel.id);trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-expanded','false');
+ const heading=elt('span',null,'requirement-popover-heading'),close=elt('button','Đóng','requirement-popover-close');close.type='button';close.setAttribute('aria-label',`Đóng giải thích ${name}`);heading.append(elt('strong',name),close);panel.append(heading);
+ const content=elt('span',null,'requirement-popover-content');content.tabIndex=0;content.setAttribute('role','region');content.setAttribute('aria-label',`Mô tả ${name}`);
+ for(const [title,text] of description){const row=elt('span',null,'requirement-popover-item');row.append(elt('strong',title),elt('span',text));content.append(row);}panel.append(content);
+ const position=()=>{const r=trigger.getBoundingClientRect();panel.style.left=`${Math.max(12,Math.min(r.left,innerWidth-panel.offsetWidth-12))}px`;panel.style.top=`${Math.max(12,Math.min(r.bottom+8,innerHeight-panel.offsetHeight-12))}px`;};
+ hoverTarget.append(trigger,panel);attachDetailPopover({trigger,panel,close,position,hoverTarget});
+ return trigger;
 }
 function appendRequirementReferences(parent,text,requirements,elt,loadReferences){
  const pattern=referencePattern();
@@ -85,22 +114,7 @@ function appendRequirementReferences(parent,text,requirements,elt,loadReferences
    catch{status.textContent='Chưa tải được lịch sử. Đóng và mở lại để thử lại.';}
    finally{loading=false;if(loaded)status.remove();}
   };
-  const show=()=>{
-   referenceEvents();
-   if(activeReference?.trigger===trigger){clearTimeout(activeReference.timer);return;}
-   closeReference();panel.hidden=false;panel.showPopover();trigger.setAttribute('aria-expanded','true');
-   activeReference={trigger,panel,pinned:false,timer:null};
-   void load();
-   position();
-  };
-  const delayClose=()=>{if(activeReference?.trigger===trigger&&!activeReference.pinned){clearTimeout(activeReference.timer);activeReference.timer=setTimeout(()=>{if(activeReference?.trigger===trigger&&!panel.contains(document.activeElement)&&document.activeElement!==trigger)closeReference();},180);}};
-  trigger.addEventListener('pointerenter',event=>{if(event.pointerType!=='touch')show();});trigger.addEventListener('pointerleave',delayClose);
-  trigger.addEventListener('focus',show);trigger.addEventListener('blur',delayClose);
-  trigger.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(activeReference?.trigger===trigger&&activeReference.pinned){closeReference();return;}show();activeReference.pinned=true;});
-  trigger.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' ')event.stopPropagation();});
-  panel.addEventListener('pointerenter',()=>{if(activeReference?.trigger===trigger)clearTimeout(activeReference.timer);});panel.addEventListener('pointerleave',delayClose);panel.addEventListener('focusout',delayClose);
-  panel.addEventListener('click',event=>event.stopPropagation());
-  close.addEventListener('click',event=>{event.preventDefault();trigger.focus();closeReference();});
+  attachDetailPopover({trigger,panel,close,position,onOpen:load});
  }
  parent.append(document.createTextNode(text.slice(offset)));
 }
