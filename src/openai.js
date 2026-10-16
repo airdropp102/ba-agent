@@ -4,21 +4,8 @@ import {brainstormSchema} from './brainstorm.js';
 import {validateModelOutput} from './model-output.js';
 import {availableSolutionReferences} from './clarification-recommendations.js';
 import {noteUsage} from './ai-telemetry.js';
-import {readFileSync} from 'node:fs';
-import path from 'node:path';
-import {fileURLToPath} from 'node:url';
-
-// BA Skills are portable for Superpowers/Codex and also serve as domain policy
-// for this one-call Structured Outputs MVP. This is NOT a Superpowers runtime.
-const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../skills');
-function loadSkillPolicy(names) {
-  return names.map(name => {
-    const markdown = readFileSync(path.join(skillDir, name, 'SKILL.md'), 'utf8');
-    return markdown.replace(/^---\n[\s\S]*?\n---\n/, '').slice(0, 4600);
-  }).join('\n\n--- DOMAIN RULE ---\n');
-}
-export const analysisPolicy = loadSkillPolicy(['ba-eliciting-requirements','ba-normalizing-requirements','ba-detecting-gaps','ba-clarifying-requirements','ba-analyzing-erp']);
-export const prototypePolicy = loadSkillPolicy(['ba-generating-deliverables']);
+import {buildAnalysisPrompt,buildPrototypePrompt} from './ba-prompts.js';
+export {analysisPolicy,prototypePolicy} from './ba-prompts.js';
 
 async function structured(instructions, payload, schema, schemaName) {
   const key = process.env.OPENAI_API_KEY;
@@ -45,24 +32,12 @@ async function structured(instructions, payload, schema, schemaName) {
 }
 
 export async function analyzeWithAI(title, brief, solutionProfile=null) {
-  return structured(`Bạn là Lead Business Analyst sử dụng BABOK và kỹ thuật requirements engineering. Phân tích bằng tiếng Việt.
-Chỉ dựa trên yêu cầu đầu vào. Tuyệt đối không coi suy luận là yêu cầu được xác nhận.
-Mỗi functional requirement và business rule được xác nhận phải có sourceEvidence là trích dẫn NGUYÊN VĂN liên tục từ brief; nếu không có, certainty=assumption và sourceEvidence="".
-Nêu rõ business problem, goals, actors, phạm vi, quy tắc nghiệp vụ, requirement, happy/alternate flow, acceptance criteria dạng kiểm thử được; flow/AC mới đề xuất phải được nêu là giả định trong assumptions/clarificationQuestions nếu thiếu căn cứ.
-Các yêu cầu NFR về bảo mật, tốc độ, tải, SLA chỉ confirmed khi khách hàng nói rõ; tuyệt đối không tự đặt ngưỡng số liệu.
-Lập câu hỏi làm rõ có thứ tự ưu tiên nếu thiếu dữ liệu. Chỉ đưa scopeOut khi khách hàng nêu, không tự quyết định loại chức năng.
-Tránh đưa thông tin cá nhân nhạy cảm vào tài liệu nếu không có yêu cầu rõ ràng.
-Dùng relatedBusinessGoal khớp chính xác một mục trong businessGoals, nếu không khớp trả "".\nQuy tắc BA bổ sung (tham chiếu BABOK v3):\n${analysisPolicy}`,
+  return structured(buildAnalysisPrompt(solutionProfile),
     {title,brief,solutionProfile}, analysisSchema,'ba_analysis');
 }
 
 export async function prototypeWithAI(analysis, review) {
-  return structured(`Bạn là UX designer tạo click-through low-fidelity prototype dựa trên SRS đã review. Trả lời tiếng Việt.
-Dùng 2–6 screens nếu đủ requirements; nếu thiếu thì tối đa 1 màn hình placeholder "Cần làm rõ".
-Mỗi screen có id độc nhất: SCREEN1, SCREEN2..., component.actionTarget là id một screen khác hoặc "". Dùng type trong schema; các button để chuyển màn hình nếu actionTarget hợp lệ.
-Gắn requirementIds chỉ từ input functionalRequirements; không sáng tạo thêm các feature ngoài phạm vi.
-Chỉ sinh wireframe component data, tuyệt đối không sinh HTML/CSS/script.
-Nếu có những giả định chưa xác nhận, dùng chữ “Dự kiến” trong nhãn/mô tả; đừng biến thành luồng đã duyệt.\nQuy tắc sinh đầu ra BA:\n${prototypePolicy}`,
+  return structured(buildPrototypePrompt(),
     {analysis,review},prototypeSchema,'ba_prototype');
 }
 

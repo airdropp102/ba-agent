@@ -2,6 +2,7 @@
  * Deliberately does NOT use alias/keyword matches as human semantic truth.
  */
 import {createHash} from 'node:crypto';
+import {normalizeSolutionProfile} from './erp-intelligence.js';
 
 export const ACCEPTANCE_SCHEMA='ba.live-acceptance.v1';
 export const ACCEPTANCE_POLICY={minCases:20,maxCases:50,minFrRecall:0.90,minNfrRecall:0.85,minGrounding:0.99,maxUnsupported:0.03,minAgreement:0.80};
@@ -24,6 +25,10 @@ export function validateCorpus(corpus,{minCases=ACCEPTANCE_POLICY.minCases,maxCa
   assert(safeId(c.id)&&!ids.has(c.id),`Duplicate/invalid case ID: ${c.id}`);ids.add(c.id);
   assert(typeof c.title==='string'&&c.title.trim().length>1&&c.title.length<=250,'Missing/invalid case title');
   assert(typeof c.brief==='string'&&c.brief.trim().length>=20&&c.brief.length<=100000,`Invalid brief in ${c.id}`);
+  if(c.solutionProfile!==undefined){
+   assert(c.solutionProfile&&typeof c.solutionProfile==='object'&&!Array.isArray(c.solutionProfile),'Invalid solutionProfile');
+   normalizeSolutionProfile(c.solutionProfile);
+  }
   assert(typeof c.domain==='string'&&c.domain.trim().length>0,`Missing domain in ${c.id}`);
   for(const field of ['expectedFunctional','expectedNfr']){
    assert(Array.isArray(c[field]),`Missing ${field} in ${c.id}`);

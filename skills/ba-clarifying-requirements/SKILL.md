@@ -11,7 +11,7 @@ For each material gap, ask one neutral, concrete question with affected FR/NFR a
 
 1. Present `Q-###`, affected requirement ID, priority, business impact, respondent/role and decision deadline if known.
 2. Preserve verbatim customer response and its provenance (`email`, `workshop`, `document`, timestamp and approver when available).
-3. Apply the answer only to affected requirements. Mark original vs amended behavior and re-run normalization and verification.
+3. Apply the answer only to affected requirements. Preserve FR/NFR/BR/Q IDs across revisions; never renumber unaffected records or unanswered questions. Mark original vs amended behavior and re-run normalization and verification.
 4. Keep unanswered questions open; a BA-generated suggestion cannot be a verified customer response.
 5. Regenerate drafts and trace links; invalidate older BA review and prototype on revision.
 
@@ -19,11 +19,11 @@ For each material gap, ask one neutral, concrete question with affected FR/NFR a
 
 **Output:** answered/unanswered questions, amendment log, affected IDs, revision and outstanding gaps.
 
-## v3.7 — Recommendation-assisted clarification (when tech stack is supplied)
+## Recommendation-assisted clarification
 
 - For each still-open question, optionally propose **1–3 distinct DRAFT alternatives** appropriate to the operator-declared project tech stack. Include affected scope, implementation approach, likely benefits, trade-offs, dependencies, and a reasoned preference only when evidence permits.
-- Never invent the project's tech stack, customer business policy, security commitment, performance SLA, or scope. If a stack is missing, request it rather than assuming. Never silently select an option.
-- A human must select a specific option and provide approval authority (`ba` or `customer`), source/reference and rationale. An operator-attested customer approval requires the representative's name and still does not prove customer sign-off independently.
+- Technical mode requires declared stack/candidate references; never invent the stack, business policy, SLA or scope. Business mode may propose DRAFT answers without a stack and must not invent technology. Read `docs/CLARIFICATION.md` for mode-specific contracts.
+- `selectionMode:ba-draft` may rank and preselect a DRAFT option; it never commits a decision. A human must explicitly save the exact option with approval authority (`ba` or `customer`). Manual approvals require source/reference and rationale; the BA UI may use its internal decision-log reference under `decisionContext:ba-ui`, which is not customer evidence. Customer authority requires respondent/evidence under the applicable API contract and never proves baseline sign-off independently.
 - A BA-accepted technical solution is an **authorized BA decision / answered clarification**, **not automatically customer-confirmed requirements**. Customer-selected choices are recorded separately and do not imply approval of the PRD/SRS baseline.
 - Re-analyze after decisions; reject stale recommendations when questions or stack change. Invalidate BA Review, prototype, generated design and dependent checkpoints before resuming. Preserve the immutable decision log and per-project audit history.
 - Format the export with selected answer, proposer/approver role, evidence reference, and unresolved trade-offs. Proposals without explicit approval remain open.

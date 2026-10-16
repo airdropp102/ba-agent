@@ -7,6 +7,8 @@ description: Use when stakeholder language contains overlapping requests, soluti
 
 Convert elicited notes into precise, atomic statements while preserving meaning.
 
+Preserve FR/NFR/BR/Q IDs across revisions, including reordering, additions and removals. Allocate new IDs only to new records; never reuse retired IDs. Use the project's previous analysis and ID counters through `src/revisions.js`; its conservative matching is not semantic proof. Flag ambiguous renames, splits or merges for review and preserve the change history instead of guessing identity. Cite actual source IDs and retain open Q IDs.
+
 | Information | Canonical placement |
 |---|---|
 | Business outcome | `business.businessGoals[]` (`BG-###`) |

@@ -78,3 +78,35 @@ test('Raw model evidence is assessed before normalization can silently downgrade
  for(const r of [f.a,f.b,f.final])r.runPredictionsHash=digest(f.run.cases);
  assert.ok(scored(f).failures.some(x=>x.startsWith('confirmedGrounding')));
 });
+
+test('reviewed corpus supports explicit ERP profiles and rejects malformed profiles',()=>{
+ const f=fixture();f.corpus.cases[0].solutionProfile={domain:'erp'};
+ assert.equal(validateCorpus(f.corpus).caseCount,20);
+ for(const profile of [null,[],{domain:'unknown'},{domain:'general',candidates:[{id:'guessed'}]}]){
+  f.corpus.cases[0].solutionProfile=profile;
+  assert.throws(()=>validateCorpus(f.corpus));
+ }
+});
+
+test('live CLI resume refuses changed prompt/model before provider calls or run writes',async()=>{
+ const {mkdtempSync,writeFileSync,readFileSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os'),{join}=await import('node:path'),{spawnSync}=await import('node:child_process');
+ const {analysisPromptManifest}=await import('../src/ba-prompts.js');
+ const dir=mkdtempSync(join(tmpdir(),'ba-resume-fixture-'));
+ try{
+  // Existing synthetic harness fixture only; never used as a production corpus.
+  const f=fixture(),corpusPath=join(dir,'corpus.json'),runPath=join(dir,'run.json');
+  writeFileSync(corpusPath,JSON.stringify(f.corpus));
+  for(const variant of ['missing-prompt','changed-prompt','changed-model']){
+   const run={...f.run,provider:'codex',model:'mock-configured',promptManifest:analysisPromptManifest()};
+   if(variant==='missing-prompt')delete run.promptManifest;
+   if(variant==='changed-prompt')run.promptManifest.general.instructionSha256='changed';
+   if(variant==='changed-model')run.model='another-model';
+   const original=JSON.stringify(run);writeFileSync(runPath,original);
+   const result=spawnSync(process.execPath,['scripts/live-acceptance.mjs','--run','--resume','--corpus',corpusPath,'--out',runPath,'--confirm-external-processing'],{encoding:'utf8',timeout:6000,env:{...process.env,DEMO_MODE:'false',AI_PROVIDER:'codex',CODEX_MODEL:'mock-configured',CODEX_BIN:'/nonexistent-mock-provider'}});
+   assert.equal(result.status,2,result.stderr);
+   assert.match(result.stderr,variant==='changed-model'?/changed corpus\/provider\/model/:/missing or changed prompt/);
+   assert.equal(readFileSync(runPath,'utf8'),original);
+  }
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});

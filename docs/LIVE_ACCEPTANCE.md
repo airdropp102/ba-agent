@@ -88,3 +88,39 @@ Missing denominator, corpus, references or proof => FAIL or a validation error (
 - **At-least-once API costs** possible on killed in-flight requests; persisted status avoids intentional silent replays. Metrics do not replace reconciliation with provider invoice or monitoring prompt-injection behavior in long workflows.
 - Gold annotations can be stale, not representative or intentionally misrepresented; real BA signoff and broad-domain sampling remain necessary.
 - For future portable integrations, implement an **MCP server** exposing `figma_read_only_verify` and `acceptance_artifact_register` with strict JSON schema; the REST readback is deliberately kept independent here, not blindly routed through the same LLM-operated MCP tool.
+
+## Offline prompt preparation and comparison
+
+`npm run eval:prompts` measures instruction hashes/UTF-8 bytes and policy selection
+without loading provider adapters or invoking models. The default five-case corpus
+is synthetic and remains ineligible for production acceptance. To check an actual
+reviewed corpus locally, use:
+
+```bash
+npm run eval:prompts -- --corpus /secure/ba-gold-reviewed.json
+```
+
+This applies the existing corpus admission checks (20–50 cases, data-use approval,
+two BA annotations and adjudication, scoped Figma target). It does not produce
+predictions, semantic scores, or release approval. Reviewer identity/provenance is
+still operator-attested. Reports omit brief/title/quotes; tokens and price remain
+UNKNOWN because bytes are not measured provider usage.
+
+The size baseline reconstructs the old all-skills/4,600-character-cutoff algorithm
+against the **current** skill files. Compare policy bytes, not historical model
+quality or whole-request token cost. For a real before/after study, retain separate
+runs from each code/prompt revision on the same approved corpus and model; obtain
+two independent reviews and adjudication for each run. Do not reuse judgments
+across changed predictions or infer accuracy from reduced instruction size.
+
+New live runs record `promptManifest` (version, instruction SHA-256 and byte size
+for general and ERP profiles) and the configured `CODEX_MODEL` where supplied.
+Resume rejects changed/missing prompt manifests, including older runs without one;
+existing completed runs remain scoreable. Restart the worker/server after skill
+edits: policies are cached per process. Keep separate run files across revisions.
+
+A case may explicitly declare `solutionProfile` using the application ERP profile
+contract. It is validated and passed to analysis. Only `solutionProfile.domain=erp`
+activates ERP policy; the descriptive corpus `domain` label alone does not select
+an ERP platform or infer customer facts. Existing cases without a profile use the
+general prompt. Admission and external-processing consent gates remain unchanged.

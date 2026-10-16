@@ -12,6 +12,7 @@
     "eval": "node scripts/evaluate.mjs",
     "setup": "node scripts/bootstrap.mjs",
     "setup:start": "node scripts/bootstrap.mjs --start",
+    "eval:prompts": "node scripts/evaluate-prompts.mjs",
     "eval:semantic": "node scripts/evaluate-semantic.mjs",
     "eval:workflow": "node --test tests/v32-workflow.test.js",
     "worker": "node scripts/worker.mjs",

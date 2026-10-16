@@ -123,3 +123,18 @@ Giới hạn: AI/tool side effects có thể xảy ra trước commit; không c�
 ## Thiết kế giải pháp ERP
 
 ERP workflow chèn bước thiết kế sau BA Review, trước DELIVERABLES. Human gates xác nhận target và review bản thiết kế độc lập với BA Review/customer signoff. `erp-solution-design.js` ràng buộc đầu vào theo digest, validate FR coverage và lưu thiết kế trong project JSON của SQLite. Projection theo UUID chứa target và tài liệu thiết kế. Telemetry operation `erp-solution-design` chỉ lưu metadata usage/latency như các operation khác; thiếu giá/usage vẫn UNKNOWN. Workflow non-ERP và manual APIs cũ giữ tương thích. Xem [ERP](ERP.md) và [Workflow](WORKFLOWS.md).
+
+## Ghép prompt BA
+
+`src/ba-prompts.js` cung cấp hướng dẫn chung cho OpenAI/Codex ở bước phân tích và
+prototype. Phân tích dùng eliciting/normalizing/detecting-gaps/clarifying; chỉ thêm
+ERP overlay khi `solutionProfile.domain=erp`. Prototype dùng generating-deliverables.
+Bộ nạp giữ đầy đủ nội dung skill, loại frontmatter, và báo lỗi nếu một policy hoặc
+tổng policy vượt 64 KiB; không cắt ngầm. Policy được cache theo process nên cần
+restart worker/server sau khi sửa skill. Brainstorm, recommendations và ERP solution
+design giữ prompt chuyên biệt hiện có.
+
+`npm run eval:prompts` đo byte/hash offline; không gọi model và không xác nhận chất
+lượng ngữ nghĩa. Live acceptance lưu manifest hướng dẫn để chặn resume trộn prompt
+khác revision. Manifest chỉ chứa metadata hướng dẫn, không có brief/prompt payload;
+không thêm nội dung vào `ai_invocations`. Xem [Live acceptance](LIVE_ACCEPTANCE.md).

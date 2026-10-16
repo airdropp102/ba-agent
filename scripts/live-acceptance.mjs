@@ -5,6 +5,8 @@ await loadDotEnv();
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {analysisPromptManifest,assertPromptManifest} from '../src/ba-prompts.js';
+import {normalizeSolutionProfile} from '../src/erp-intelligence.js';
 import {analyze,checkProvider} from '../src/ai-provider.js';
 import {normalizeAnalysis} from '../src/normalize.js';
 import {buildSources,applyEvidenceTrust} from '../src/revisions.js';
@@ -38,11 +40,12 @@ async function main(){
   if(process.env.DEMO_MODE!=='false'||!['openai','codex'].includes(checkProvider()))throw new Error('Live run requires DEMO_MODE=false AI_PROVIDER=openai|codex');
   if(checkProvider()==='openai'&&!process.env.OPENAI_API_KEY)throw new Error('OPENAI_API_KEY is unavailable');
   const output=opt('--out');if(!output)throw new Error('Specify --out /secure/path/run.json');
+  const model=checkProvider()==='openai'?(process.env.OPENAI_MODEL||'gpt-4.1-mini'):(process.env.CODEX_MODEL||'codex-cli');
   let run;
   const resume=has('--resume');
-  if(resume){run=await readJson(output);if(run.corpusHash!==info.corpusHash||run.provider!==checkProvider()||run.model!==(checkProvider()==='openai'?(process.env.OPENAI_MODEL||'gpt-4.1-mini'):'codex-cli'))throw new Error('Cannot resume a run with changed corpus/provider/model');}
+  if(resume){run=await readJson(output);if(run.corpusHash!==info.corpusHash||run.provider!==checkProvider()||run.model!==model)throw new Error('Cannot resume a run with changed corpus/provider/model');assertPromptManifest(run.promptManifest);}
   else{
-   run={schemaVersion:ACCEPTANCE_SCHEMA,runId:randomUUID(),startedAt:new Date().toISOString(),corpusHash:info.corpusHash,provider:checkProvider(),model:checkProvider()==='openai'?(process.env.OPENAI_MODEL||'gpt-4.1-mini'):'codex-cli',cases:[],providerProcess:'Existing BA Studio elicitation path; raw messages and API keys not saved in run file',warning:'Potential customer data in generated predictions; store files with restricted permissions.'};
+   run={schemaVersion:ACCEPTANCE_SCHEMA,runId:randomUUID(),startedAt:new Date().toISOString(),corpusHash:info.corpusHash,provider:checkProvider(),model,promptManifest:analysisPromptManifest(),cases:[],providerProcess:'Existing BA Studio elicitation path; raw messages and API keys not saved in run file',warning:'Potential customer data in generated predictions; store files with restricted permissions.'};
    await saveJson(output,run);
   }
   for(const c of corpus.cases){
@@ -50,7 +53,7 @@ async function main(){
    if(run.cases.some(x=>x.id===c.id))continue;
    const began=Date.now();let outcome;
    try{
-    const raw=await analyze(c.title,c.brief);
+    const raw=await analyze(c.title,c.brief,c.solutionProfile?normalizeSolutionProfile(c.solutionProfile):null);
     const rawConfirmed=[...(raw.functionalRequirements||[]),...(raw.nonFunctionalRequirements||[]),...(raw.businessRules||[])].filter(x=>x.certainty==='confirmed');
     const rawEvidence={confirmed:rawConfirmed.length,grounded:rawConfirmed.filter(x=>quoteIn(c.brief,x.sourceEvidence)).length};
     const norm=prepareBAAnalysis(applyEvidenceTrust(normalizeAnalysis(raw,c.brief),buildSources(c.brief)));

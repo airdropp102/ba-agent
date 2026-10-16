@@ -16,7 +16,7 @@ description: Use when a reviewed requirements model must be rendered consistentl
 
 ## Invariants
 
-- Keep FR/NFR/goal IDs intact across all artifacts. Never silently renumber mid-revision.
+- Keep FR/NFR/BR/Q and goal IDs intact across artifacts and revisions. Never renumber existing records because items were added, removed or reordered; retain unresolved Q IDs and source references.
 - Every interactive screen lists originating FR IDs; no phantom features, payments or roles.
 - A new elicitation answer invalidates downstream review and prototype for the prior version.
 - Label outputs **DRAFT** while open questions/assumptions remain; never imply production UI or completed business acceptance.

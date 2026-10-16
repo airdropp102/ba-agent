@@ -1,4 +1,4 @@
-# BA Skills + Superpowers quick install
+                                       # BA Skills + Superpowers quick install
 
 **Goal:** Customer brief → BABOK-inspired elicitation → standardized requirements → gap analysis → customer questions → BA review → draft BRD/SRS/prototype.
 
