@@ -1,3 +1,4 @@
+import {currentERPTarget,currentERPDesign,confirmERPTarget,erpDesignInput,acceptERPDesign,reviewERPDesign,invalidateERPDesign,renderERPDesign} from './erp-solution-design.js';
 import {codexTimeoutMs,runCodexStructured} from './codex-provider.js';
 import {withExecutionContext,logExecution} from './execution-log.js';
 import {applyClarificationBatch} from './clarification-batch.js';
@@ -12,7 +13,7 @@ import {validateReadback} from './figma-readback.js';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {analyze,generatePrototype,brainstorm,recommendClarifications,provider,checkProvider} from './ai-provider.js';
+import {analyze,generatePrototype,brainstorm,recommendClarifications,generateERPSolution,provider,checkProvider} from './ai-provider.js';
 import {mergeStableIds,buildSources,applyEvidenceTrust,fingerprint} from './revisions.js';
 import {timingSafeEqual,createHash} from 'node:crypto';
 import {normalizeAnalysis,normalizePrototype} from './normalize.js';
@@ -67,6 +68,7 @@ function auditAs(p,actor,event,details={}){
   Object.defineProperty(p,'_auditDetails',{value:details,configurable:true,enumerable:false});
 }
 const save=async (p,options={})=>{
+  invalidateERPDesign(p);
   logExecution('DB_SAVE_START',{projectId:p.id,stage:p.workflow?.stage,version:p.version});
   store.save(p,{actorId:p._auditActor||'system',eventType:p._auditEvent||'PROJECT_COMMITTED',details:p._auditDetails||{stage:p.workflow?.stage,state:p.workflow?.state},...(p.analysis?{qualityReport:assessDeliverables(p,{policy:qualitySettings})}:{}),...options});
   logExecution('DB_SAVE_COMPLETE',{projectId:p.id,stage:p.workflow?.stage,version:p.version});
@@ -153,6 +155,7 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
     }
   }
   for(let i=0;i<(auto?8:1);i++){
+    if(wf.stage==='DELIVERABLES'&&wf.state!=='COMPLETED'&&p.solutionProfile?.domain==='erp'&&currentERPDesign(p)?.status!=='APPROVED')wf.stage='ERP_SOLUTION_DESIGN';
     const stage=wf.stage;
     // Historical manual Figma runs remain readable; design now runs from Prototype.
     if(wf.state==='COMPLETED'||['FIGMA_DESIGN','FIGMA_PUBLISH'].includes(stage))return p;
@@ -161,6 +164,11 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
     }
     if(stage==='BA_REVIEW' && !p.review?.approved){
       await setWorkflowState(p,'WAITING_BA_REVIEW');return p;
+    }
+    if(stage==='ERP_SOLUTION_DESIGN'){
+      if(!p.review?.approved||p.requirementsRefreshPending){await setWorkflowState(p,'WAITING_BA_REVIEW');return p;}
+      if(!currentERPTarget(p)){await setWorkflowState(p,'WAITING_ERP_TARGET');return p;}
+      if(currentERPDesign(p)?.status==='WAITING_FOR_REVIEW'){await setWorkflowState(p,'WAITING_ERP_DESIGN_REVIEW');return p;}
     }
     if(stage==='DELIVERABLES' && !p.analysis?.functionalRequirements?.length){
       await setWorkflowState(p,'BLOCKED_NO_FUNCTIONAL_REQUIREMENTS');return p;
@@ -204,6 +212,13 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
       }else if(stage==='BA_REVIEW'){
         if(!p.review?.approved)throw new Error('BA review is required');
         details={reviewedAt:p.review.reviewedAt,customerApproved:false};
+      }else if(stage==='ERP_SOLUTION_DESIGN'){
+        if(currentERPDesign(p)?.status!=='APPROVED'){
+          const input=erpDesignInput(p);
+          const raw=await withAIContext({projectId:p.id,runId:wf.runId,stage},()=>generateERPSolution(input));
+          acceptERPDesign(p,raw);
+        }
+        details={designId:p.erpSolutionDesign.id,contentDigest:p.erpSolutionDesign.contentDigest,customerApproved:false};
       }else if(stage==='DELIVERABLES'){
         if(!p.review?.approved)throw new Error('BA review is required');
         if(!p.prototype)await createPrototype(p);
@@ -212,8 +227,11 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
       await archive(p);
       const attempt=wf.attempts.find(x=>x.id===attemptId);if(attempt){attempt.result='SUCCEEDED';attempt.finishedAt=new Date().toISOString();}
       logExecution('WORKFLOW_STAGE_COMPLETE',{projectId:p.id,runId:wf.runId,stage});
+      if(stage==='ERP_SOLUTION_DESIGN'&&currentERPDesign(p)?.status!=='APPROVED'){
+        wf.currentAttempt=null;wf.lastError=null;wf.state='WAITING_ERP_DESIGN_REVIEW';wf.updatedAt=new Date().toISOString();p.version++;p.updatedAt=wf.updatedAt;await save(p);return p;
+      }
       checkpoint(p,stage,details);
-      wf.stage=stage==='DELIVERABLES'?stage:nextStage(stage);wf.state=stage==='DELIVERABLES'?'COMPLETED':'READY';
+      wf.stage=stage==='DELIVERABLES'?stage:nextStage(stage,p);wf.state=stage==='DELIVERABLES'?'COMPLETED':'READY';
       wf.updatedAt=new Date().toISOString();p.version++;p.updatedAt=wf.updatedAt;await save(p);
       if(wf.state==='COMPLETED')return p;
     }catch(cause){
@@ -329,6 +347,24 @@ async function handler(req,res){
         const item=screens?.find(s=>s.screenId===screenId);if(!item)return error(res,'Preview is not available for this project screen',404);
         const bytes=await figmaPreviews.read(p.id,item.preview.path,item.preview);
         res.writeHead(200,{'Content-Type':item.preview.contentType,'Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);
+      }
+      if(segments[3]==='erp'&&segments[4]==='target'&&segments.length===5&&req.method==='POST'){
+        const body=await readBody(req),actor=reviewerId(req);confirmERPTarget(p,body,actor);
+        const wf=ensureWorkflow(p);wf.stage='ERP_SOLUTION_DESIGN';wf.state='READY';wf.lastError=null;wf.currentAttempt=null;
+        wf.checkpoints=(wf.checkpoints||[]).filter(x=>!['ERP_SOLUTION_DESIGN','DELIVERABLES','FIGMA_DESIGN','FIGMA_PUBLISH'].includes(x.stage));
+        p.version++;p.updatedAt=new Date().toISOString();auditAs(p,actor,'ERP_TARGET_CONFIRMED',{platformId:p.erpTarget.platformId,version:p.erpTarget.version,sourceReference:p.erpTarget.sourceReference});await save(p);return json(res,p);
+      }
+      if(segments[3]==='erp'&&segments[4]==='design'&&segments.length===5&&req.method==='GET')return json(res,{target:currentERPTarget(p),design:p.erpSolutionDesign||null,current:!!currentERPDesign(p)});
+      if(segments[3]==='erp'&&segments[4]==='design'&&['export','ERP_SOLUTION_DESIGN.md'].includes(segments[5])&&segments.length===6&&req.method==='GET'){
+        if(!currentERPDesign(p))return error(res,'Thiết kế thiếu hoặc đã lỗi thời.',409);
+        return sendDownload(res,'ERP_SOLUTION_DESIGN.md',renderERPDesign(p),'text/markdown; charset=utf-8');
+      }
+      if(segments[3]==='erp'&&segments[4]==='design'&&segments[5]==='review'&&segments.length===6&&req.method==='POST'){
+        const body=await readBody(req),actor=reviewerId(req),wf=ensureWorkflow(p);
+        if(wf.stage!=='ERP_SOLUTION_DESIGN')return error(res,'Bước thiết kế ERP chưa hoạt động.',409);
+        const design=reviewERPDesign(p,body,actor);
+        if(design.status==='APPROVED'){checkpoint(p,'ERP_SOLUTION_DESIGN',{designId:design.id,contentDigest:design.contentDigest,customerApproved:false});wf.stage='DELIVERABLES';}
+        wf.state='READY';p.version++;p.updatedAt=new Date().toISOString();auditAs(p,actor,'ERP_DESIGN_'+body.decision,{designId:design.id,contentDigest:design.contentDigest});await save(p);return json(res,p);
       }
       if(segments[3]==='erp'&&segments.length===4&&req.method==='GET')return json(res,{projectId:p.id,profile:p.solutionProfile||null,assessment:erpFitGapReport(p),comparison:erpSolutionComparison(p)});
       if(segments[3]==='erp'&&segments[4]==='profile'&&segments.length===5&&req.method==='POST'){
@@ -589,7 +625,7 @@ async function handler(req,res){
         if(notes.length>20000)return error(res,'Ghi chú vượt quá 20.000 ký tự');
         const actor=reviewerId(req);await archive(p);p.review={approved:true,notes,reviewedAt:new Date().toISOString(),unresolvedQuestions:p.analysis.clarificationQuestions.length};
         p.status='REVIEWED';
-        if(hasActiveWorkflow(p)){checkpoint(p,'BA_REVIEW',{customerApproved:false,waivedHighRisk:hasCurrentWaiver(p)});p.workflow.stage='DELIVERABLES';p.workflow.state='READY';}
+        if(hasActiveWorkflow(p)){checkpoint(p,'BA_REVIEW',{customerApproved:false,waivedHighRisk:hasCurrentWaiver(p)});p.workflow.stage=nextStage('BA_REVIEW',p);p.workflow.state='READY';}
         p.version++;p.updatedAt=new Date().toISOString();auditAs(p,actor,'BA_REVIEW_APPROVED',{notes,reviewedAt:p.review.reviewedAt,analysisDigest:fingerprint(JSON.stringify(p.analysis)),waiver:p.workflow?.waiver?.blockerDigest||null});await save(p);return json(res,p);
       }
       if(segments[3]==='generate'&&req.method==='POST'){
@@ -614,7 +650,7 @@ async function handler(req,res){
       }
     }
     if(req.method==='GET' && !url.pathname.startsWith('/api/')){
-      const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/workflow-progress.js':'workflow-progress.js','/clarification-ui.js':'clarification-ui.js','/clarification-batch-ui.js':'clarification-batch-ui.js','/figma-review-ui.js':'figma-review-ui.js'};
+      const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/workflow-progress.js':'workflow-progress.js','/quality-dashboard-ui.js':'quality-dashboard-ui.js','/clarification-ui.js':'clarification-ui.js','/clarification-batch-ui.js':'clarification-batch-ui.js','/figma-review-ui.js':'figma-review-ui.js'};
       const file=files[url.pathname];if(!file)return error(res,'Not Found',404);
       const content=await fs.readFile(path.join(publicDir,file));res.writeHead(200,{'Content-Type':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.js')?'application/javascript; charset=utf-8':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff'});return res.end(content);
     }

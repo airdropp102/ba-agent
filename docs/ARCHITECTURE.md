@@ -28,7 +28,7 @@ flowchart TB
     Workspace --> Files[DATA_DIR/projects/UUID]
     API --> Queue[Durable jobs]
     Queue --> Worker[Worker trong HTTP process hoặc process riêng]
-    Worker --> BA[BA workflow: 6 bước]
+    Worker --> BA[BA workflow: 6 bước + thiết kế ERP có điều kiện]
     BA --> Provider[AI provider adapter]
     Provider --> Demo[Demo fixtures]
     Provider --> OpenAI[OpenAI API]
@@ -119,3 +119,7 @@ Sau câu trả lời hoặc quyết định làm rõ, `requirementsRefreshPendin
 Giới hạn: AI/tool side effects có thể xảy ra trước commit; không có exactly-once cho external calls; retry có thể tốn chi phí hoặc tạo frame dư. Không có đồng bộ hai chiều tự động với mọi chỉnh sửa trực tiếp trên Figma. Usage/pricing thiếu là UNKNOWN. Offline fixture tests không chứng nhận semantic accuracy, production acceptance, customer signoff hoặc live MCP connectivity.
 
 Đọc tiếp: [Thành phần](COMPONENTS.md), [Workflow](WORKFLOWS.md), [API](API.md), [Vận hành](OPERATIONS.md), [Figma](figma-handoff.md).
+
+## Thiết kế giải pháp ERP
+
+ERP workflow chèn bước thiết kế sau BA Review, trước DELIVERABLES. Human gates xác nhận target và review bản thiết kế độc lập với BA Review/customer signoff. `erp-solution-design.js` ràng buộc đầu vào theo digest, validate FR coverage và lưu thiết kế trong project JSON của SQLite. Projection theo UUID chứa target và tài liệu thiết kế. Telemetry operation `erp-solution-design` chỉ lưu metadata usage/latency như các operation khác; thiếu giá/usage vẫn UNKNOWN. Workflow non-ERP và manual APIs cũ giữ tương thích. Xem [ERP](ERP.md) và [Workflow](WORKFLOWS.md).

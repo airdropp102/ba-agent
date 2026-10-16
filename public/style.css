@@ -1638,3 +1638,18 @@ h1{
 .process-area-help { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid #cbd5eb; border-radius: 50%; color: #3348b5; background: #eef2ff; font-size: 14px; font-weight: 700; cursor: help; }
 .process-area-help:focus-visible { outline: 3px solid #5268da; outline-offset: 3px; }
 @media (pointer: coarse) { .process-area-help { width: 44px; height: 44px; } }
+
+.erp-target-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; padding: 20px 0; }
+.erp-target-form > label:not(.erp-target-confirm) { display: grid; gap: 6px; }
+.erp-target-form input:not([type=checkbox]), .erp-target-form select, .erp-design-review textarea { width: 100%; min-width: 0; }
+.erp-target-confirm { display: flex; align-items: flex-start; gap: 10px; grid-column: 1/-1; }
+.erp-target-confirm input { flex: 0 0 auto; margin-top: 5px; }
+.erp-target-setup, .erp-design-group { padding: 16px; border: 1px solid #dce3ef; border-radius: 12px; margin: 16px 0; }
+.erp-target-setup summary, .erp-design-group summary { cursor: pointer; font-weight: 650; }
+.erp-design-solution { padding: 14px 0; border-top: 1px solid #e4e9f2; overflow-wrap: anywhere; }
+.erp-design-solution dt { font-weight: 650; margin-top: 12px; }
+.erp-design-solution dd { margin: 4px 0 0; white-space: pre-wrap; }
+.erp-design-review { display: grid; gap: 12px; margin-top: 20px; }
+@media (max-width: 650px) { .erp-target-form { grid-template-columns: 1fr; } }
+
+@media (min-width: 1201px) { .workflow-timeline.erp-timeline { grid-template-columns: repeat(7,minmax(0,1fr)); } }

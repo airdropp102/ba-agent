@@ -94,3 +94,13 @@ The shortlist UI disables candidates whose distribution does not match `open-sou
 ## Business process area help
 
 The profile checklist provides Vietnamese descriptions for all eight process areas. Hover over an area or focus its information button to see scope and discovery questions; on touch devices tap the information button. Details do not toggle the checkbox or save a profile. Escape, Close and outside tap dismiss the popover. Descriptions are general discovery guidance, not confirmed customer requirements or a platform capability claim.
+
+## Thiết kế giải pháp ERP sau BA Review
+
+Trong **Tổng quan → Thiết kế giải pháp ERP**, chọn target từ shortlist (hoặc Custom Build cho strategy custom), nhập phiên bản, edition, deployment, phạm vi module và tham chiếu quyết định. Chọn checkbox xác nhận; không có nền tảng được tự chọn. Business process areas phải được chọn trước BA Review. Xác nhận target không cài sản phẩm và không xác nhận bản quyền/module.
+
+Bấm tạo DRAFT để chạy stage qua queue. Adapter demo sinh khung khảo sát; OpenAI/Codex sinh structured output theo schema qua validation chung. Không chạy provider thật chỉ để mở panel. Mỗi FR có đúng một mục, gắn process area đã chọn, gồm module dự kiến, hướng standard/configure/extend/integrate/build, cấu hình, workflow, phân quyền, chuyển đổi dữ liệu, tích hợp, custom, UAT, rủi ro nâng cấp và câu hỏi mở. Các phần chưa có bằng chứng vẫn cần kiểm chứng trên môi trường mục tiêu; đây không phải bộ lệnh tự triển khai ERP.
+
+BA nhập ghi chú để duyệt hoặc yêu cầu chỉnh sửa. Quyết định ràng buộc projectVersion, designId và contentDigest. Bản đã duyệt cho phép workflow tiếp tục DELIVERABLES. Đổi target/yêu cầu/profile/Fit–Gap/BA Review làm thiết kế cũ mất hiệu lực; phải xác nhận target và review lại. Lịch sử nằm trong snapshot SQLite và `erpSolutionDesignHistory` (20 bản gần nhất trong current state; snapshot vẫn giữ lịch sử cũ).
+
+Artifacts: `00-admin/ERP_TARGET.json`, `02-requirements/ERP_SOLUTION_DESIGN.json`, `02-requirements/ERP_SOLUTION_DESIGN.md`. Markdown luôn ghi DRAFT, trạng thái và nền tảng. Không khẳng định cấu hình đã chạy thành công chỉ từ bản sinh AI. Xuất bản hiện hành qua API; bản stale không xuất được bằng route thiết kế hiện hành.

@@ -3,8 +3,9 @@ import {fingerprint,resolveEvidenceSource} from './revisions.js';
 
 /** Durable single-agent workflow: no remote publish without explicit operator action. */
 export const WORKFLOW_STAGES=['BRAINSTORM','ELICITATION','GAP_ANALYSIS','CLARIFICATION','BA_REVIEW','DELIVERABLES'];
+export const workflowStages=p=>p?.solutionProfile?.domain==='erp'?[...WORKFLOW_STAGES.slice(0,5),'ERP_SOLUTION_DESIGN','DELIVERABLES']:WORKFLOW_STAGES;
 // Legacy IDs remain ordered for invalidating old checkpoints, never scheduled anew.
-const stageIndex=s=>[...WORKFLOW_STAGES,'FIGMA_DESIGN','FIGMA_PUBLISH'].indexOf(s);
+const stageIndex=s=>[...WORKFLOW_STAGES.slice(0,5),'ERP_SOLUTION_DESIGN','DELIVERABLES','FIGMA_DESIGN','FIGMA_PUBLISH'].indexOf(s);
 const stamp=()=>new Date().toISOString();
 export function ensureWorkflow(project){
   if(!project.workflow){
@@ -48,7 +49,8 @@ export function checkpoint(p,stage,meta={}){
   wf.checkpoints=[...(wf.checkpoints||[]),record].slice(-80);
   wf.currentAttempt=null;wf.lastError=null;wf.updatedAt=stamp();return record;
 }
-export function nextStage(stage){const i=stageIndex(stage);if(i<0||i===WORKFLOW_STAGES.length-1)return stage;return WORKFLOW_STAGES[i+1];}
+export function nextStage(stage,p){const stages=workflowStages(p),i=stages.indexOf(stage);return i<0||i===stages.length-1?stage:stages[i+1];}
+
 export function qualitySnapshot(p){
   const a=p.analysis||{};
   const fr=a.functionalRequirements||[];

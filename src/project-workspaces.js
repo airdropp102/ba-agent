@@ -1,3 +1,4 @@
+import {renderERPDesign} from './erp-solution-design.js';
 import {erpFitGapReport} from './erp-intelligence.js';
 /** Multi-project filesystem projections and evidence inbox for BA Studio v3.6.
  * The shared SQLite database remains authoritative for projects, jobs and audit.
@@ -70,9 +71,13 @@ export class ProjectWorkspaces{
     await put('00-admin','ERP_SOLUTION_PROFILE.json',JSON.stringify(p.solutionProfile||null,null,2)+'\n');
     await put('02-requirements','ERP_FIT_GAP.json',JSON.stringify(erpFitGapReport(p),null,2)+'\n');
     if(p.solutionProfile?.domain==='erp'){
+      await put('00-admin','ERP_TARGET.json',JSON.stringify(p.erpTarget||null,null,2)+'\n');
+      await put('02-requirements','ERP_SOLUTION_DESIGN.json',JSON.stringify(p.erpSolutionDesign||null,null,2)+'\n');
+      await put('02-requirements','ERP_SOLUTION_DESIGN.md',renderERPDesign(p));
       await put('02-requirements','ERP_DISCOVERY.md',renderERPDiscovery(p));
       await put('02-requirements','ERP_SOLUTION_COMPARISON.md',renderERPSolutionComparison(p));
     }else{
+      for(const file of ['00-admin/ERP_TARGET.json','02-requirements/ERP_SOLUTION_DESIGN.json','02-requirements/ERP_SOLUTION_DESIGN.md'])await fs.rm(path.join(root,file),{force:true});
       await fs.rm(path.join(root,'02-requirements','ERP_DISCOVERY.md'),{force:true});
       await fs.rm(path.join(root,'02-requirements','ERP_SOLUTION_COMPARISON.md'),{force:true});
     }

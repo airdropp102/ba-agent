@@ -20,10 +20,11 @@ Mở `http://127.0.0.1:3478`. `setup` giữ `.env` hiện có; cấu hình mẫu
 1. Tạo dự án bằng brief hoặc tải nội dung text.
 2. Theo dõi workflow trong Tổng quan; làm rõ câu hỏi ở Phân tích.
 3. Rà soát và ghi BA Review trước khi tạo/đọc các đầu ra được bảo vệ.
-4. Đọc/tải PRD, BRD, SRS và HTML prototype.
-5. Trong Prototype, khởi chạy socket, nhập URL Figma/channel và xác nhận file; chờ bản vẽ, duyệt hoặc yêu cầu chỉnh sửa.
-6. Bản design đã duyệt vẫn có thể yêu cầu sửa; bản mới phải duyệt lại.
-7. Tab Tài liệu lưu các file bổ sung riêng theo dự án.
+4. Với dự án ERP, xác nhận nền tảng mục tiêu trong Tổng quan, tạo và BA review thiết kế giải pháp trước DELIVERABLES. Dự án thông thường bỏ qua bước này.
+5. Đọc/tải PRD, BRD, SRS và HTML prototype.
+6. Trong Prototype, khởi chạy socket, nhập URL Figma/channel và xác nhận file; chờ bản vẽ, duyệt hoặc yêu cầu chỉnh sửa.
+7. Bản design đã duyệt vẫn có thể yêu cầu sửa; bản mới phải duyệt lại.
+8. Tab Tài liệu lưu các file bổ sung riêng theo dự án.
 
 Workflow BA mới kết thúc ở `DELIVERABLES / COMPLETED`. Figma là tác vụ riêng tại Prototype; không còn hai bước giao diện Design Pack/publish thủ công. Công cụ/API legacy còn phục vụ tương thích và phục hồi.
 

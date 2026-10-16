@@ -86,3 +86,13 @@ Review đổi project version. Client phải đọc lại sau mutation, không r
 ## Tra cứu FR lịch sử trong câu hỏi
 
 `GET /api/projects/:id/requirement-references` trả `{projectId, projectVersion, requirements}`. Mỗi item gồm `id`, `name`, `description`, `actor`, `historicalVersion`. Chỉ lấy FR không còn trong analysis hiện tại, chọn snapshot mới nhất chứa đúng mã. Route áp dụng auth/read scope của project, không ghi dữ liệu và không suy luận ID thay thế. UI đối chiếu projectVersion, ưu tiên yêu cầu hiện tại và ghi rõ bản lịch sử. Đây không phải xác nhận ngữ nghĩa của liên kết câu hỏi–FR.
+
+## Target và thiết kế ERP
+
+- `POST /api/projects/:id/erp/target`: `{platformId, version, edition, deployment, modules, sourceReference, confirmed:true}`. Cần ERP, FR đã review, không pending refresh và phạm vi process areas. Deployment: `odoo-online|odoo-sh|self-hosted|other`. Xác nhận làm workflow vào ERP_SOLUTION_DESIGN, vô hiệu checkpoint downstream; không sửa requirement hay biến target thành installed stack.
+- `GET /api/projects/:id/erp/design`: `{target,design,current}`; target null khi xác nhận hết hiệu lực.
+- Sinh/retry qua `POST /api/projects/:id/workflow/jobs` (hoặc manual `/workflow/advance`). Không bypass target/BA Review/design review gate.
+- `POST /api/projects/:id/erp/design/review`: `{decision:"APPROVE"|"REQUEST_CHANGES", designId, contentDigest, projectVersion, notes, acknowledgeUnverified}`. Notes 10–5000 ký tự. Chỉ review bản WAITING_FOR_REVIEW hiện hành; ACK bắt buộc nếu còn phần NEEDS_VERIFICATION. Approval không thay Fit–Gap/customer signoff.
+- `GET /api/projects/:id/erp/design/ERP_SOLUTION_DESIGN.md` (alias `/export`): tải thiết kế DRAFT hiện hành; thiếu/stale trả 409.
+
+Mọi mutation dùng lease, reviewer identity và If-Match policy hiện có. Output thiếu FR, trùng FR, FR lạ hoặc process area ngoài phạm vi bị từ chối trước lưu.

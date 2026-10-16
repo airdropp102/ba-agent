@@ -34,7 +34,7 @@ Composition root: nạp môi trường, tạo store/workspaces/relay/preview sto
 
 ### `src/intelligent-workflow.js`
 
-Sáu stage chính, workflow initialization, checkpoint, unresolved blockers, signed waiver scope, downstream invalidation, completeness snapshot và design coverage helpers. Legacy Figma stage IDs chỉ giữ cho dữ liệu cũ/invalidation; không được lên lịch mới sau DELIVERABLES.
+Sáu stage cơ bản, thêm ERP_SOLUTION_DESIGN có điều kiện cho ERP, workflow initialization, checkpoint, unresolved blockers, signed waiver scope, downstream invalidation, completeness snapshot và design coverage helpers. Legacy Figma stage IDs chỉ giữ cho dữ liệu cũ/invalidation; không được lên lịch mới sau DELIVERABLES.
 
 ## 3. Yêu cầu, provenance và tài liệu
 
@@ -111,3 +111,7 @@ Relay process nằm trong HTTP server; standalone worker dùng loopback relay c�
 | Live acceptance | `live-acceptance.mjs` + `src/live-acceptance.js`; explicit transmission permission, human review và acceptance policy |
 
 CLI Figma/manual read-back là công cụ tương thích và phục hồi, không phải các bước bắt buộc mới trên giao diện. Xem [API](API.md) và [Vận hành](OPERATIONS.md).
+
+### `erp-solution-design.js`
+
+Quản lý xác nhận target ràng buộc BA Review/profile/Fit–Gap, schema/policy sinh thiết kế, demo fixture, coverage validation, input/content digests, review/version guards, invalidation và Markdown export. Provider adapters sinh nội dung; module này không kết nối một ERP instance. Fit–Gap có chứng cứ theo exact version/edition được đính kèm như human attestation; mọi hướng xử lý AI là đề xuất DRAFT.

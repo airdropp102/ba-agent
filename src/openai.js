@@ -1,3 +1,4 @@
+import {erpDesignSchema,erpDesignPolicy} from './erp-solution-design.js';
 import { analysisSchema, prototypeSchema, clarificationRecommendationSchema } from './schemas.js';
 import {brainstormSchema} from './brainstorm.js';
 import {validateModelOutput} from './model-output.js';
@@ -80,3 +81,5 @@ KHÔNG tự quyết phạm vi, ngưỡng số hay chính sách kinh doanh; khôn
 Tất cả đều DRAFT, chờ BA/khách hàng phê duyệt.`,{techStack:project.techStack,solutionProfile:project.solutionProfile,allowedReferences:availableSolutionReferences(project),questions},clarificationRecommendationSchema,'ba_clarification_recommendations');
  return result.questions;
 }
+
+export const erpSolutionWithAI=input=>structured(erpDesignPolicy,input,erpDesignSchema,'erp_solution_design');

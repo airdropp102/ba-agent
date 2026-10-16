@@ -18,8 +18,15 @@ flowchart TD
     C -->|Đã qua gate| R[BA_REVIEW]
     R -->|Chưa duyệt| WR[WAITING_BA_REVIEW]
     WR --> Human[BA rà soát và xác nhận]
-    Human --> D[DELIVERABLES]
-    R -->|Đã duyệt| D
+    Human --> ERP{Dự án ERP?}
+    ERP -->|Không| D[DELIVERABLES]
+    ERP -->|Có| ED[ERP_SOLUTION_DESIGN]
+    ED -->|Thiếu xác nhận nền tảng| WT[WAITING_ERP_TARGET]
+    WT -->|Xác nhận phiên bản và môi trường| ED
+    ED -->|Sinh DRAFT| WD[WAITING_ERP_DESIGN_REVIEW]
+    WD -->|Yêu cầu sửa| ED
+    WD -->|BA duyệt| D
+    R -->|Đã duyệt| ERP
     D -->|Quality enforcement bật và không đạt| WQ[WAITING_QUALITY_REVIEW]
     WQ --> Fix[Sửa nguồn / yêu cầu, phân tích và review lại]
     Fix --> G
@@ -34,6 +41,7 @@ flowchart TD
 | GAP_ANALYSIS | Refresh analysis khi pending; tính gap; gợi ý khi có references hợp lệ | Gap report và draft proposals |
 | CLARIFICATION | Kiểm tra blocker High và waiver bound với analysis/blocker digest | WAITING_CLARIFICATION hoặc tiếp tục |
 | BA_REVIEW | Chờ con người rà soát analysis hiện tại | WAITING_BA_REVIEW hoặc reviewer record |
+| ERP_SOLUTION_DESIGN (chỉ ERP) | Yêu cầu BA Review hiện hành và target đã xác nhận; sinh thiết kế DRAFT cho mọi FR | WAITING_ERP_TARGET / WAITING_ERP_DESIGN_REVIEW; duyệt mới đi tiếp |
 | DELIVERABLES | Kiểm tra có FR, BA review, optional quality gate; sinh prototype nếu thiếu | COMPLETED; tài liệu được render/export theo guards |
 
 UI dùng `POST /workflow/jobs` để enqueue. `POST /workflow/advance` vẫn có cho client/CLI đồng bộ; `auto:false` chạy tối đa một stage. Không bỏ qua human gates khi auto.
@@ -115,3 +123,9 @@ bootstrap → chọn NEW_TASK hoặc RESUME cụ thể
 ```
 
 Ledger này không tự advance BA workflow hay approve dự án. Khi evidence drift, RECONCILE phải nêu lý do và cập nhật/invalidate evidence thật; không chỉnh projection để giả match. Hooks chỉ xuất trạng thái đã commit. Xem [Session continuity](SESSION_CONTINUITY.md).
+
+## Thiết kế giải pháp ERP
+
+ERP workflow thêm `ERP_SOLUTION_DESIGN` giữa BA_REVIEW và DELIVERABLES. Workflow non-ERP vẫn có sáu stage. UI Tổng quan chứa form xác nhận target (platform/version/edition/deployment/modules/sourceReference), generation qua durable queue và review theo design ID/content digest/project version. Workflow ERP cũ đã COMPLETED không tự chạy lại khi mở; xác nhận target là hành động rõ ràng để bắt đầu bước mới. ERP run đang ở DELIVERABLES nhưng chưa hoàn tất sẽ qua gate thiết kế nếu chưa có bản duyệt hiện hành. Các manual APIs cũ giữ tương thích.
+
+Target chỉ có hiệu lực với đúng brief/analysis/BA Review/profile/Fit–Gap. Đổi đầu vào làm thiết kế STALE; không xóa snapshot cũ. REQUEST_CHANGES giữ feedback và bản cũ, lần sinh tiếp tạo revision mới. APPROVE là BA review thiết kế DRAFT, không phải customer signoff hoặc xác nhận module đã được kiểm chứng. Nếu chưa có Fit–Gap đúng version/edition, reviewer phải ghi nhận rõ phần chưa kiểm chứng trước khi duyệt. Nội dung AI không được ghi ngược thành FR/BR hoặc Fit–Gap đã xác nhận.

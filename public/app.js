@@ -1,14 +1,16 @@
 import {completeDrafts,generateQuestionGroups,selectRecommendedDrafts,uploadDraftAttachments} from './clarification-batch-ui.js';
 import {candidateAllowed,filterQuestions,renderQuestionForm,referencedRequirements,processAreaHelp} from './clarification-ui.js';
+import {patchQualityDashboard} from './quality-dashboard-ui.js';
 import {watchWorkflowJob,workflowStatus,elapsedLabel} from './workflow-progress.js';
 import {figmaUiState,approvedGalleryScreens,screenPreviewUrl,projectToRestore,figmaFailureMessage} from './figma-review-ui.js';
 const $ = id => document.getElementById(id);
 const state={project:null,tab:'workflow',busy:false,docCache:{},workflowPlatform:'web',workflowJob:null,questionPriority:'all',questionStatus:'open',answerDrafts:{},suggestionJobs:{},figmaDesign:null,figmaJob:null,figmaRelay:null,figmaForm:{},figmaPollKey:null};
 const stages=['NEW','ANALYZED','REVIEWED','GENERATED'];
-const wfLabels={BRAINSTORM:'Brainstorming',ELICITATION:'Elicitation',GAP_ANALYSIS:'Gap Analysis',CLARIFICATION:'Clarification',BA_REVIEW:'BA Review',DELIVERABLES:'BRD / SRS / Prototype'};
+const wfLabels={BRAINSTORM:'Brainstorming',ELICITATION:'Elicitation',GAP_ANALYSIS:'Gap Analysis',CLARIFICATION:'Clarification',BA_REVIEW:'BA Review',ERP_SOLUTION_DESIGN:'Thiết kế giải pháp ERP',DELIVERABLES:'BRD / SRS / Prototype'};
 const statusNames={NEW:'Mới tạo',ANALYZED:'Đã phân tích',REVIEWED:'BA đã rà soát',GENERATED:'Đã sinh tài liệu & prototype'};
 // Cache only the selected project/version; archived data is displayed explicitly as historical.
 let referenceHistoryCache=null;
+let qualityDashboardCache=null;
 function loadRequirementReferences(project,label){
  const key=`${project.id}:${project.version}`;
  if(referenceHistoryCache?.key!==key)referenceHistoryCache={key,promise:null};
@@ -144,8 +146,63 @@ async function renderProjectFiles(){
   root.append(listing);
 }
 
+function refreshQualityDashboard(p,root){
+  // Quality & FinOps are read-only, request-scoped metrics; no source text is transmitted to the dashboard.
+  if(qualityDashboardCache?.projectId!==p.id){
+    const initial=panel('Chất lượng & chi phí AI','Kiểm tra xác định bằng chứng và truy vết; không chứng nhận tính đúng nghiệp vụ.');
+    initial.append(elt('p','Đang tải các chỉ số chất lượng...'));
+    qualityDashboardCache={projectId:p.id,panel:initial,request:0};
+  }
+  const cache=qualityDashboardCache,livePanel=cache.panel,request=++cache.request;
+  if(livePanel.parentNode!==root)root.append(livePanel);
+  Promise.all([api(`/api/projects/${p.id}/quality`),api(`/api/projects/${p.id}/quality/ai`),api(`/api/projects/${p.id}/quality/history`)]).then(([q,ai,history])=>{
+    if(!livePanel.isConnected||state.project?.id!==p.id||cache!==qualityDashboardCache||request!==cache.request)return;
+    const qualityPanel=elt('section',null,'panel quality-dashboard');
+    const heading=elt('div',null,'section-heading'),title=elt('div');title.append(elt('span','SỨC KHỎE DỰ ÁN','overline'),elt('h2','Chất lượng & chi phí AI'),elt('p','Theo dõi độ đầy đủ của đặc tả và mức sử dụng AI trong dự án.'));
+    const gateNames={PASS:'Đạt kiểm tra',REVIEW:'Cần rà soát',BLOCK:'Chưa đạt kiểm tra'};
+    const badge=elt('span',gateNames[q.decision]||q.decision,'quality-badge '+(q.decision==='PASS'?'good':q.decision==='BLOCK'?'blocked':'review'));heading.append(title,badge);qualityPanel.replaceChildren(heading);
+    const summary=elt('div',null,'quality-summary');
+    for(const [value,label,note,name] of [[q.scorePercent==null?'—':q.scorePercent+'%','Điểm kiểm tra','Theo tiêu chí tự động','shield'],[q.findings.length,'Điểm cần xem xét','Chi tiết ở bên dưới','search'],[ai.calls,'Lượt sử dụng AI','Các lượt đã được ghi nhận','sparkles'],[ai.knownCostUsd==null?'Chưa xác định':'$'+ai.knownCostUsd,'Chi phí đã biết',ai.unknownCostCalls?`${ai.unknownCostCalls} lượt chưa có chi phí`:'Từ dữ liệu được ghi nhận','document']]){
+      const card=elt('div',null,'quality-kpi'),top=elt('div',null,'quality-kpi-label');top.append(icon(name),elt('span',label));card.append(top,elt('strong',value),elt('small',note));summary.append(card);
+    }
+    qualityPanel.append(summary);
+    const columns=elt('div',null,'quality-columns'),coverage=elt('section',null,'quality-section'),usage=elt('section',null,'quality-section');
+    coverage.append(elt('h3','Độ phủ yêu cầu'),elt('p','Những thành phần đã có trong đặc tả.','subtle'));
+    for(const [key,label] of [['evidence','Bằng chứng nguồn'],['actors','Vai trò sử dụng'],['acceptance','Tiêu chí nghiệm thu'],['documentTrace','Truy vết tài liệu']]){
+      const rate=q.rates[key],row=elt('div',null,'coverage-item'),line=elt('div',null,'coverage-label');line.append(elt('span',label),elt('b',rate==null?'Chưa có dữ liệu':Math.round(rate*100)+'%'));row.append(line);
+      if(rate!=null){const bar=elt('div',null,'coverage-track'),fill=elt('span');fill.style.width=Math.min(100,Math.max(0,rate*100))+'%';bar.setAttribute('aria-hidden','true');bar.classList.toggle('incomplete',rate<1);bar.append(fill);row.append(bar)}coverage.append(row);
+    }
+    usage.append(elt('h3','Sử dụng AI'),elt('p','Chỉ hiển thị số liệu được hệ thống ghi nhận.','subtle'));
+    const usageList=elt('dl',null,'usage-list');
+    for(const [label,value] of [['Token đầu vào',ai.inputTokens==null?'Chưa xác định':ai.inputTokens.toLocaleString('vi-VN')],['Token đầu ra',ai.outputTokens==null?'Chưa xác định':ai.outputTokens.toLocaleString('vi-VN')],['Thời gian phản hồi p95',ai.p95LatencyMs==null?'Chưa có dữ liệu':(ai.p95LatencyMs/1000).toLocaleString('vi-VN',{maximumFractionDigits:1})+' giây'],['Số lượt trong mẫu p95',ai.p95SampleSize??'Chưa có dữ liệu']]){const row=elt('div');row.append(elt('dt',label),elt('dd',value));usageList.append(row)}usage.append(usageList);
+    const hint=elt('p',null,'quality-info');hint.append(icon('document'),elt('span','Thiếu dữ liệu token hoặc bảng giá thì tổng chi phí vẫn chưa xác định.'));usage.append(hint);columns.append(coverage,usage);qualityPanel.append(columns);
+    const findingNames={NO_FUNCTIONAL_REQUIREMENTS:'Chưa có yêu cầu chức năng',UNTRUSTED_CONFIRMED_EVIDENCE:'Bằng chứng nguồn cần xác minh',ACTOR_MISSING:'Thiếu vai trò sử dụng',AC_MISSING:'Thiếu tiêu chí nghiệm thu',GOAL_UNMAPPED:'Chưa liên kết mục tiêu',DOC_TRACE_MISSING:'Thiếu truy vết tài liệu',HIGH_CLARIFICATIONS_PENDING:'Còn câu hỏi ưu tiên cao',BA_REVIEW_REQUIRED:'Cần BA rà soát'};
+    if(q.findings.length){const detail=elt('details',null,'quality-details');detail.dataset.qualityKey='findings';detail.open=q.decision==='BLOCK';const toggle=elt('summary');toggle.append(elt('span','Các điểm cần xem xét'),elt('span',q.findings.length+' mục','pill'));detail.append(toggle,dataTable(['Nội dung','Mức độ','Yêu cầu'],q.findings.slice(0,20).map(f=>{const label=elt('div');label.append(elt('strong',findingNames[f.code]||f.code),elt('small',f.code));return [label,elt('span',f.severity==='BLOCK'?'Cần xử lý':f.severity==='WARN'?'Cần rà soát':f.severity,'quality-badge '+(f.severity==='BLOCK'?'blocked':'review')),f.requirementId||'Toàn dự án']})));if(q.findings.length>20)detail.append(elt('small',`Hiển thị 20/${q.findings.length} mục. Xem thêm trong tab Phân tích.`));qualityPanel.append(detail)}
+    if(history.length){const detail=elt('details',null,'quality-details');detail.dataset.qualityKey='history';detail.append(elt('summary','Lịch sử kiểm tra'),dataTable(['Phiên bản','Điểm kiểm tra','Kết quả'],history.slice(0,8).map(h=>['v'+h.version,h.score==null?'—':Math.round(h.score*100)+'%',gateNames[h.decision]||h.decision])));qualityPanel.append(detail)}
+    if(q.enforceable&&!q.passed)qualityPanel.append(elt('p','Cổng kiểm tra đang bật: cần cập nhật nguồn hoặc yêu cầu và chạy lại trước khi tạo tài liệu.','note'));
+    qualityPanel.append(elt('p','Điểm kiểm tra tự động không thay thế đánh giá nghiệp vụ của BA hoặc phê duyệt của khách hàng.','quality-footnote'));
+
+    patchQualityDashboard(livePanel,qualityPanel);
+  }).catch(()=>{
+    if(!livePanel.isConnected||cache!==qualityDashboardCache||request!==cache.request)return;
+    if(!livePanel.classList.contains('quality-dashboard'))livePanel.lastElementChild.textContent='Chưa tải được chỉ số. Hệ thống sẽ thử lại ở lượt cập nhật tiếp theo.';
+  });
+}
+
 function renderWorkflow(){
-  const p=state.project,w=p.workflow||{stage:'BRAINSTORM',state:'READY',checkpoints:[]},root=$('workflow-content');root.replaceChildren();
+  const p=state.project,w=p.workflow||{stage:'BRAINSTORM',state:'READY',checkpoints:[]},root=$('workflow-content');
+  const pollingJob=state.workflowJob?.projectId===p.id?state.workflowJob:null;
+  const renderKey=JSON.stringify([p.id,p.version,pollingJob?.id,pollingJob?.state,pollingJob?.attempts,pollingJob?.max_attempts]);
+  if(root.dataset.renderKey===renderKey&&root.firstElementChild){
+    const status=workflowStatus(p,pollingJob),values=root.querySelectorAll('.workflow-stats .metric b');
+    if(values[1])values[1].textContent=elapsedLabel(status.stageSeconds);
+    if(values[2])values[2].textContent=elapsedLabel(status.jobSeconds);
+    refreshQualityDashboard(p,root);
+    return;
+  }
+  root.dataset.renderKey=renderKey;
+  const focusedMetric=qualityDashboardCache?.panel.contains(document.activeElement)?document.activeElement:null;
+  root.replaceChildren();
   const finished=w.state==='COMPLETED'||['FIGMA_DESIGN','FIGMA_PUBLISH'].includes(w.stage);
   const head=panel('Hành trình dự án','Chạy theo checkpoint, tự dừng để xác nhận thông tin hoặc BA review. Quản lý thiết kế Figma tại tab Prototype.');
   const job=state.workflowJob?.projectId===p.id?state.workflowJob:null;
@@ -158,11 +215,12 @@ function renderWorkflow(){
   add(metrics,metric((w.checkpoints||[]).length,'Mốc xử lý đã lưu'),metric(elapsedLabel(status.stageSeconds),'Thời gian bước hiện tại'),metric(elapsedLabel(status.jobSeconds),'Tổng thời gian job'));
   head.append(metrics);
   if(status.job){const note=elt('p',`${status.job.state==='SUCCEEDED'?'Lượt xử lý đã kết thúc':status.job.state==='DEAD_LETTER'?'Đã hết lượt thử':status.active?'Đang chờ kết quả · cập nhật mỗi 2 giây':status.label} · Lần thử ${status.job.attempts||0}/${status.job.max_attempts||3}`,'workflow-job-note');head.append(note);}
+  if(['WAITING_ERP_TARGET','WAITING_ERP_DESIGN_REVIEW'].includes(w.state))head.append(elt('p','Hoàn tất xác nhận hoặc review trong phần Thiết kế giải pháp ERP bên dưới.','workflow-callout'));
   if(w.state==='WAITING_CLARIFICATION')head.append(elt('p','Mở Phân tích → Câu hỏi cần làm rõ để chọn gợi ý hoặc nhập câu trả lời.','workflow-callout'));
   if(w.state==='READY')head.append(elt('p','Bấm Chạy / Tiếp tục để xử lý bước tiếp theo.','workflow-callout'));
-  const stages=elt('div',null,'workflow-timeline');
+  const stages=elt('div',null,'workflow-timeline'+(p.solutionProfile?.domain==='erp'?' erp-timeline':''));
   const completed=new Set((w.checkpoints||[]).map(x=>x.stage));
-  for(const [i,stage] of Object.keys(wfLabels).entries()){
+  for(const [i,stage] of Object.keys(wfLabels).filter(stage=>stage!=='ERP_SOLUTION_DESIGN'||p.solutionProfile?.domain==='erp').entries()){
     const step=elt('div',null,'workflow-item'+(completed.has(stage)?' completed':w.stage===stage?' current':''));
     add(step,elt('b',String(i+1).padStart(2,'0')),elt('span',wfLabels[stage]),elt('small',completed.has(stage)?'✓ Checkpoint':stage===w.stage?status.label:'Chưa chạy'));stages.append(step);
   }
@@ -195,38 +253,9 @@ function renderWorkflow(){
     root.append(detail);
   }),'quiet'));
   root.append(head);
-  // Quality & FinOps are read-only, request-scoped metrics; no source text is transmitted to the dashboard.
-  const qualityPanel=panel('Chất lượng & chi phí AI','Kiểm tra xác định bằng chứng và truy vết; không chứng nhận tính đúng nghiệp vụ.');
-  qualityPanel.append(elt('p','Đang tải các chỉ số chất lượng...'));
-  root.append(qualityPanel);
-  Promise.all([api(`/api/projects/${p.id}/quality`),api(`/api/projects/${p.id}/quality/ai`),api(`/api/projects/${p.id}/quality/history`)]).then(([q,ai,history])=>{
-    if(!qualityPanel.isConnected||state.project?.id!==p.id)return;
-    qualityPanel.classList.add('quality-dashboard');
-    const heading=elt('div',null,'section-heading'),title=elt('div');title.append(elt('span','SỨC KHỎE DỰ ÁN','overline'),elt('h2','Chất lượng & chi phí AI'),elt('p','Theo dõi độ đầy đủ của đặc tả và mức sử dụng AI trong dự án.'));
-    const gateNames={PASS:'Đạt kiểm tra',REVIEW:'Cần rà soát',BLOCK:'Chưa đạt kiểm tra'};
-    const badge=elt('span',gateNames[q.decision]||q.decision,'quality-badge '+(q.decision==='PASS'?'good':q.decision==='BLOCK'?'blocked':'review'));heading.append(title,badge);qualityPanel.replaceChildren(heading);
-    const summary=elt('div',null,'quality-summary');
-    for(const [value,label,note,name] of [[q.scorePercent==null?'—':q.scorePercent+'%','Điểm kiểm tra','Theo tiêu chí tự động','shield'],[q.findings.length,'Điểm cần xem xét','Chi tiết ở bên dưới','search'],[ai.calls,'Lượt sử dụng AI','Các lượt đã được ghi nhận','sparkles'],[ai.knownCostUsd==null?'Chưa xác định':'$'+ai.knownCostUsd,'Chi phí đã biết',ai.unknownCostCalls?`${ai.unknownCostCalls} lượt chưa có chi phí`:'Từ dữ liệu được ghi nhận','document']]){
-      const card=elt('div',null,'quality-kpi'),top=elt('div',null,'quality-kpi-label');top.append(icon(name),elt('span',label));card.append(top,elt('strong',value),elt('small',note));summary.append(card);
-    }
-    qualityPanel.append(summary);
-    const columns=elt('div',null,'quality-columns'),coverage=elt('section',null,'quality-section'),usage=elt('section',null,'quality-section');
-    coverage.append(elt('h3','Độ phủ yêu cầu'),elt('p','Những thành phần đã có trong đặc tả.','subtle'));
-    for(const [key,label] of [['evidence','Bằng chứng nguồn'],['actors','Vai trò sử dụng'],['acceptance','Tiêu chí nghiệm thu'],['documentTrace','Truy vết tài liệu']]){
-      const rate=q.rates[key],row=elt('div',null,'coverage-item'),line=elt('div',null,'coverage-label');line.append(elt('span',label),elt('b',rate==null?'Chưa có dữ liệu':Math.round(rate*100)+'%'));row.append(line);
-      if(rate!=null){const bar=elt('div',null,'coverage-track'),fill=elt('span');fill.style.width=Math.min(100,Math.max(0,rate*100))+'%';bar.setAttribute('aria-hidden','true');bar.classList.toggle('incomplete',rate<1);bar.append(fill);row.append(bar)}coverage.append(row);
-    }
-    usage.append(elt('h3','Sử dụng AI'),elt('p','Chỉ hiển thị số liệu được hệ thống ghi nhận.','subtle'));
-    const usageList=elt('dl',null,'usage-list');
-    for(const [label,value] of [['Token đầu vào',ai.inputTokens==null?'Chưa xác định':ai.inputTokens.toLocaleString('vi-VN')],['Token đầu ra',ai.outputTokens==null?'Chưa xác định':ai.outputTokens.toLocaleString('vi-VN')],['Thời gian phản hồi p95',ai.p95LatencyMs==null?'Chưa có dữ liệu':(ai.p95LatencyMs/1000).toLocaleString('vi-VN',{maximumFractionDigits:1})+' giây'],['Số lượt trong mẫu p95',ai.p95SampleSize??'Chưa có dữ liệu']]){const row=elt('div');row.append(elt('dt',label),elt('dd',value));usageList.append(row)}usage.append(usageList);
-    const hint=elt('p',null,'quality-info');hint.append(icon('document'),elt('span','Thiếu dữ liệu token hoặc bảng giá thì tổng chi phí vẫn chưa xác định.'));usage.append(hint);columns.append(coverage,usage);qualityPanel.append(columns);
-    const findingNames={NO_FUNCTIONAL_REQUIREMENTS:'Chưa có yêu cầu chức năng',UNTRUSTED_CONFIRMED_EVIDENCE:'Bằng chứng nguồn cần xác minh',ACTOR_MISSING:'Thiếu vai trò sử dụng',AC_MISSING:'Thiếu tiêu chí nghiệm thu',GOAL_UNMAPPED:'Chưa liên kết mục tiêu',DOC_TRACE_MISSING:'Thiếu truy vết tài liệu',HIGH_CLARIFICATIONS_PENDING:'Còn câu hỏi ưu tiên cao',BA_REVIEW_REQUIRED:'Cần BA rà soát'};
-    if(q.findings.length){const detail=elt('details',null,'quality-details');detail.open=q.decision==='BLOCK';const toggle=elt('summary');toggle.append(elt('span','Các điểm cần xem xét'),elt('span',q.findings.length+' mục','pill'));detail.append(toggle,dataTable(['Nội dung','Mức độ','Yêu cầu'],q.findings.slice(0,20).map(f=>{const label=elt('div');label.append(elt('strong',findingNames[f.code]||f.code),elt('small',f.code));return [label,elt('span',f.severity==='BLOCK'?'Cần xử lý':f.severity==='WARN'?'Cần rà soát':f.severity,'quality-badge '+(f.severity==='BLOCK'?'blocked':'review')),f.requirementId||'Toàn dự án']})));if(q.findings.length>20)detail.append(elt('small',`Hiển thị 20/${q.findings.length} mục. Xem thêm trong tab Phân tích.`));qualityPanel.append(detail)}
-    if(history.length){const detail=elt('details',null,'quality-details');detail.append(elt('summary','Lịch sử kiểm tra'),dataTable(['Phiên bản','Điểm kiểm tra','Kết quả'],history.slice(0,8).map(h=>['v'+h.version,h.score==null?'—':Math.round(h.score*100)+'%',gateNames[h.decision]||h.decision])));qualityPanel.append(detail)}
-    if(q.enforceable&&!q.passed)qualityPanel.append(elt('p','Cổng kiểm tra đang bật: cần cập nhật nguồn hoặc yêu cầu và chạy lại trước khi tạo tài liệu.','note'));
-    qualityPanel.append(elt('p','Điểm kiểm tra tự động không thay thế đánh giá nghiệp vụ của BA hoặc phê duyệt của khách hàng.','quality-footnote'));
-
-  }).catch(e=>{if(qualityPanel.isConnected)qualityPanel.append(elt('p','Không tải được quality metrics: '+e.message));});
+  if(p.solutionProfile?.domain==='erp')renderERPSolution(p,root);
+  refreshQualityDashboard(p,root);
+  if(focusedMetric?.isConnected)focusedMetric.focus({preventScroll:true});
   if(p.brainstorm){
     const bs=panel('Brainstorming — DRAFT','Chỉ là giả thuyết, không phải yêu cầu được xác nhận.');
     bs.append(elt('p',p.brainstorm.summary));
@@ -271,6 +300,46 @@ function renderWorkflow(){
 function panel(title,subtitle){const p=elt('section',null,'panel');const h=elt('div',null,'section-heading');const div=elt('div');add(div,elt('h2',title),elt('p',subtitle));h.append(div);p.append(h);return p}
 function metric(number,caption){return add(elt('div',null,'metric'),elt('b',number),elt('span',caption))}
 function dataTable(headers,rows){const t=elt('table',null,'data-table'),head=elt('thead'),body=elt('tbody'),tr=elt('tr');for(const h of headers)tr.append(elt('th',h));head.append(tr);for(const row of rows){const r=elt('tr');for(const cell of row){const d=elt('td');if(cell instanceof Node)d.append(cell);else d.textContent=String(cell??'');r.append(d)}body.append(r)}add(t,head,body);const scroll=elt('div',null,'table-scroll');scroll.tabIndex=0;scroll.setAttribute('role','region');scroll.setAttribute('aria-label','Bảng dữ liệu: '+headers.join(', '));scroll.append(t);return scroll}
+function renderERPSolution(p,root){
+ const box=panel('Thiết kế giải pháp ERP','Sau BA Review: xác nhận nền tảng, tạo bản DRAFT theo từng yêu cầu, rồi rà soát giải pháp.');box.classList.add('erp-design-panel');root.append(box);
+ if(!p.review?.approved||p.requirementsRefreshPending){box.append(elt('p','Cần hoàn tất phân tích và BA Review trước khi xác nhận nền tảng hoặc tạo thiết kế.','workflow-note'));return;}
+ if(!p.solutionProfile.processAreas?.length){box.append(elt('p','Chọn Business process areas trong Phân tích, lưu và BA Review lại trước khi thiết kế.'));return;}
+ box.append(elt('p','Đang tải thiết kế…','erp-design-loading'));
+ api(`/api/projects/${p.id}/erp/design`).then(result=>{
+  if(!box.isConnected||state.project?.id!==p.id||state.project.version!==p.version)return;
+  box.querySelector('.erp-design-loading')?.remove();
+  const target=result.target,design=result.design;
+  const setup=elt('details',null,'erp-target-setup');setup.open=!target;setup.append(elt('summary',target?`Nền tảng mục tiêu: ${target.platformName} · ${target.version} · ${target.deployment}`:'Xác nhận nền tảng mục tiêu'));
+  const form=elt('form',null,'erp-target-form'),fields={},saved=target||p.erpTarget||{};
+  const field=(key,label,options)=>{const row=elt('label');row.append(elt('span',label));const input=elt(options?'select':'input');input.name=key;input.required=true;if(options)for(const [value,text] of [['','Chọn…'],...options]){const o=elt('option',text);o.value=value;input.append(o);}else input.maxLength=3000;input.value=saved[key]||'';row.append(input);form.append(row);fields[key]=input;};
+  const names={'odoo-community':'Odoo Community','odoo-enterprise':'Odoo Enterprise','erpnext':'ERPNext','custom-build':'Custom Build'};
+  const platforms=p.solutionProfile.strategy==='custom'?['custom-build']:p.solutionProfile.candidates;
+  field('platformId','Nền tảng đã chọn',platforms.map(id=>[id,names[id]||id]));field('version','Phiên bản mục tiêu');field('edition','Edition / bản phân phối');
+  field('deployment','Môi trường triển khai',[['odoo-online','Odoo Online'],['odoo-sh','Odoo.sh'],['self-hosted','Tự vận hành'],['other','Khác — ghi rõ trong phạm vi module']]);
+  field('modules','Module / ứng dụng và phạm vi dự kiến');field('sourceReference','Tham chiếu quyết định chọn nền tảng');
+  const confirmation=elt('label',null,'erp-target-confirm'),check=elt('input');check.type='checkbox';check.required=true;confirmation.append(check,document.createTextNode('Tôi xác nhận đây là nền tảng mục tiêu cho bản yêu cầu đã review.'));form.append(confirmation);
+  const save=button('Xác nhận nền tảng',()=>{},'primary');save.type='submit';form.append(save);form.onsubmit=event=>{event.preventDefault();work(async()=>{const body={confirmed:check.checked};for(const [key,input] of Object.entries(fields))body[key]=input.value;const next=await api(`/api/projects/${p.id}/erp/target`,'POST',body);await selectProject(next,'workflow');toast('Đã xác nhận nền tảng. Có thể tạo thiết kế ERP.');});};
+  setup.append(form);box.append(setup);
+  if(!target){box.append(elt('p','Chưa có xác nhận còn hiệu lực cho bản BA Review hiện tại.'));return;}
+  if(!design||!result.current){box.append(elt('p',design?'Bản thiết kế trước cần cập nhật. Lịch sử được giữ; tạo lại theo đầu vào hiện tại.':'Chưa có bản thiết kế. AI sẽ đề xuất cấu hình, luồng nghiệp vụ, mở rộng và UAT; các phần thiếu bằng chứng cần kiểm chứng.'));box.append(button(design?'Tạo lại thiết kế DRAFT':'Tạo thiết kế DRAFT',()=>work(progressWorkflow),'primary'));}
+  if(!design)return;
+  const labels={WAITING_FOR_REVIEW:'DRAFT · Chờ BA review',APPROVED:'BA đã duyệt thiết kế · chưa phải customer sign-off',REVISION_REQUESTED:'Đang yêu cầu chỉnh sửa',STALE:'Cần cập nhật theo yêu cầu mới'};
+  box.append(elt('p',result.current?labels[design.status]||design.status:'Bản lịch sử — không còn hiệu lực','workflow-note'),elt('p',design.content.summary));
+  for(const [areaId] of Object.entries(processAreaDescriptions)){
+   const solutions=design.content.solutions.filter(s=>s.processArea===areaId);if(!solutions.length)continue;
+   const group=elt('details',null,'erp-design-group');group.append(elt('summary',`${({'lead-to-cash':'Bán hàng và thu tiền','procure-to-pay':'Mua hàng và thanh toán','inventory-to-fulfillment':'Kho và giao hàng','plan-to-produce':'Sản xuất','record-to-report':'Tài chính và kế toán','hire-to-retire':'Nhân sự và tiền lương','master-data':'Dữ liệu chủ và chuyển đổi','integration-security':'Tích hợp và kiểm soát'})[areaId]} · ${solutions.length} yêu cầu`));
+   for(const solution of solutions){const item=elt('section',null,'erp-design-solution');item.append(elt('h4',`${solution.requirementId} · ${solution.moduleName}`),elt('p',`Hướng đề xuất: ${solution.approach} · ${design.verification.find(x=>x.requirementId===solution.requirementId)?.status==='NEEDS_VERIFICATION'?'Cần kiểm chứng':'Có đánh giá Fit–Gap của BA; cấu hình đề xuất vẫn cần kiểm chứng'}`));
+    const dl=elt('dl');for(const [key,label] of Object.entries({configuration:'Cấu hình dự kiến',workflow:'Luồng nghiệp vụ dự kiến',permissions:'Phân quyền',dataMigration:'Dữ liệu / chuyển đổi',integration:'Tích hợp',customization:'Mở rộng / custom',uat:'UAT đề xuất',upgradeRisks:'Rủi ro nâng cấp',openQuestions:'Cần làm rõ'})){dl.append(elt('dt',label));const dd=elt('dd');if(Array.isArray(solution[key])){const ul=elt('ul');for(const value of solution[key])ul.append(elt('li',value));dd.append(ul);}else dd.textContent=solution[key];dl.append(dd);}item.append(dl);group.append(item);}
+   box.append(group);
+  }
+  if(result.current)box.append(button('↓ Tải thiết kế ERP.md',()=>download(`/api/projects/${p.id}/erp/design/ERP_SOLUTION_DESIGN.md`),'quiet'));
+  if(result.current&&design.status==='WAITING_FOR_REVIEW'){
+   const review=elt('div',null,'erp-design-review'),label=elt('label','Ghi chú review / yêu cầu chỉnh sửa'),notes=elt('textarea');notes.maxLength=5000;notes.rows=3;label.append(notes);review.append(label);
+   const ackLabel=elt('label',null,'erp-target-confirm'),ack=elt('input');ack.type='checkbox';ackLabel.append(ack,document.createTextNode('Tôi đã rà soát và ghi nhận các phần chưa được kiểm chứng. Duyệt thiết kế không xác nhận khả năng ERP hoặc customer sign-off.'));review.append(ackLabel);
+   for(const [decision,text] of [['APPROVE','Duyệt thiết kế'],['REQUEST_CHANGES','Yêu cầu chỉnh sửa']])review.append(button(text,()=>work(async()=>{if(notes.value.trim().length<10)throw Error('Nhập ghi chú ít nhất 10 ký tự.');const next=await api(`/api/projects/${p.id}/erp/design/review`,'POST',{decision,notes:notes.value,acknowledgeUnverified:ack.checked,projectVersion:p.version,designId:design.id,contentDigest:design.contentDigest});await selectProject(next,'workflow');toast(decision==='APPROVE'?'Đã duyệt thiết kế; tiếp tục để tạo tài liệu.':'Đã ghi yêu cầu chỉnh sửa; tạo lại để review bản mới.');}),decision==='APPROVE'?'primary':'secondary'));box.append(review);
+  }
+ }).catch(error=>{if(box.isConnected){box.querySelector('.erp-design-loading')?.remove();box.append(elt('p',error.message,'workflow-note'));}});
+}
 const processAreaDescriptions={
  'lead-to-cash':[['Phạm vi','Từ khách hàng tiềm năng, cơ hội bán hàng và báo giá đến đơn hàng, giao hàng, lập hóa đơn và thu tiền.'],['Cần làm rõ','Người phụ trách bán hàng, chính sách giá/chiết khấu, duyệt đơn, hạn mức công nợ và xử lý trả hàng hoặc hoàn tiền.']],
  'procure-to-pay':[['Phạm vi','Từ nhu cầu mua sắm, yêu cầu và phê duyệt mua hàng đến đặt hàng nhà cung cấp, nhận hàng, kiểm tra hóa đơn và thanh toán.'],['Cần làm rõ','Hạn mức duyệt, lựa chọn nhà cung cấp, đối chiếu đơn mua–nhận hàng–hóa đơn và xử lý thiếu hàng hoặc chênh lệch giá.']],
