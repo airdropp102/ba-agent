@@ -233,6 +233,31 @@ test('publisher rejects incomplete reports and invalid preview bytes; revisions 
  const prior=JSON.stringify(registry),{value,prompts}=await run({revisionNotes:'Use more spacing and keep actions visible'});
  assert.deepEqual(registry,JSON.parse(prior));
  assert.ok(prompts.some(x=>x.includes('REVISION FEEDBACK: Use more spacing')));
- assert.ok(prompts.some(x=>x.includes('NEW versioned section')));
+ assert.ok(prompts.some(x=>x.includes('NEW isolated versioned container')));
  assert.ok(value.plan.screens.every(s=>s.action==='create'));
+});
+
+test('publisher supports MCP without create_section by requesting an isolated container frame',async()=>{
+ const p=fixture(),pack=buildFigmaHandoff(p),prompts=[];
+ const result=await publishFigmaDesign({project:p,designPack:pack,documentKey:'fixture-file',channelId:'fixture-channel',runner:async(prompt)=>{
+  prompts.push(prompt);
+  if(prompts.length===1)return {connected:true,documentKey:'fixture-file',failureCode:''};
+  assert.match(prompt,/If create_section is unavailable, use create_frame/);
+  assert.match(prompt,/parentId/);
+  assert.match(prompt,/Do not report the container as a screen/);
+  assert.match(prompt,/SKILL\.md/);
+  return {documentKey:'fixture-file',screens:pack.manifest.screens.map((s,i)=>({screenId:s.id,nodeId:`20:${i+1}`,verified:true})),notes:'Fixture container frame'};
+ },previewExporter:async({screenId})=>({screenId,contentType:'image/jpeg',base64:'/9j/4AIA/9k='})});
+ assert.equal(result.screens.length,pack.manifest.screens.length);
+ assert.match(pack.instructions,/container frame/);
+ assert.match(pack.instructions,/parentId/);
+});
+
+test('empty validated design report fails with a specific safe code and never exports previews',async()=>{
+ const p=fixture();let calls=0,exports=0;
+ await assert.rejects(publishFigmaDesign({project:p,designPack:buildFigmaHandoff(p),documentKey:'fixture-file',channelId:'fixture-channel',runner:async()=>{
+  if(++calls===1)return {connected:true,documentKey:'fixture-file',failureCode:''};
+  return {documentKey:'fixture-file',screens:[],notes:'PRIVATE_PROVIDER_TEXT: missing create_section and design skill'};
+ },previewExporter:async()=>{exports++;}}),e=>e.code==='NO_VERIFIED_SCREENS'&&!e.message.includes('PRIVATE_PROVIDER_TEXT'));
+ assert.equal(calls,2);assert.equal(exports,0);
 });

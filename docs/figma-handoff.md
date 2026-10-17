@@ -55,3 +55,11 @@ Node ID và `verified=true` trong operator report không tự chứng minh độ
 Các API manual và `scripts/figma-design.mjs` vẫn tồn tại cho integration cũ; không còn là bước bắt buộc hoặc panel thao tác trong UI. Script có thể tạo handoff với `--project UUID --platform web`; publish cần thêm `--publish --channel CHANNEL --figma-file FILE_KEY` và mọi approval/preflight liên quan. Không chạy script để replay checkpoint đã hoàn tất. Lịch sử cũ giữ nguyên để audit, không được xem là approval của revision mới.
 
 Xem thêm [workflow](WORKFLOWS.md), [API](API.md) và [vận hành](OPERATIONS.md).
+
+### Missing section tool and empty reports
+
+When TalkToFigma does not expose `create_section`, the publisher uses a new named top-level container frame and nests new screen frames with `parentId`. This is a FRAME, not a native SECTION; existing nodes remain untouched. Names and parents are supplied at creation time, so `rename_node` and `set_parent` are not required.
+
+The design prompt points to the installed `ui-ux-pro-max/SKILL.md` under `CODEX_HOME/skills` (default `~/.codex/skills`), independently of the isolated design-pack directory. `npm run doctor -- --figma` checks that the skill and search script exist. Install the skill before drawing if missing.
+
+A schema-valid report with no screens now fails as `NO_VERIFIED_SCREENS`; other rejected screen reports fail as `FIGMA_REPORT_REJECTED`. Neither status implies that the remote file is unchanged. Inspect the file before an explicit retry; no automatic drawing retry or approval is introduced.

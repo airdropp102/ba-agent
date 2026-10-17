@@ -25,7 +25,7 @@ import {buildFigmaHandoff} from './figma-handoff.js';
 import {buildPublishPlan} from './figma-registry.js';
 import {createFigmaRelayManager} from './figma-relay.js';
 import {parseFigmaDesignInput,beginFigmaDesign,completeFigmaDesign,reviewFigmaDesign,recordFigmaFileConfirmation} from './figma-design-review.js';
-import {publishFigmaDesign,FIGMA_PREFLIGHT_FAILURE_CODES} from './figma-publisher.js';
+import {publishFigmaDesign,FIGMA_DESIGN_FAILURE_CODES} from './figma-publisher.js';
 import {FigmaPreviewStore} from './figma-preview-store.js';
 import {exportFigmaPreview} from './figma-preview-export.js';
 import {normalizeTechStack,createRecommendations,recordDecision,validDecision,techStackDigest,availableSolutionReferences} from './clarification-recommendations.js';
@@ -200,11 +200,22 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
         await newAnalysis(p,p.brief);
         details={functionalRequirements:p.analysis.functionalRequirements.length};
       }else if(stage==='GAP_ANALYSIS'){
-        if(p.requirementsRefreshPending)await newAnalysis(p,p.brief);
+        if(p.requirementsRefreshPending){
+          await newAnalysis(p,p.brief);
+          // Keep the validated refresh even if draft recommendation generation fails.
+          // Retry must not discard stable IDs or send the same answers for analysis again.
+          await save(p);
+        }
         if(!p.analysis)throw new Error('Missing elicitation result');
         if(availableSolutionReferences(p).length){
-          const raw=await withAIContext({projectId:p.id,runId:wf.runId,stage:'GAP_ANALYSIS'},()=>recommendClarifications(p));
-          createRecommendations(p,raw,{provider:mode});
+          try{
+            const raw=await withAIContext({projectId:p.id,runId:wf.runId,stage:'GAP_ANALYSIS'},()=>recommendClarifications(p));
+            createRecommendations(p,raw,{provider:mode});
+          }
+          catch(cause){
+            if(cause?.status===422||cause?.message==='Codex output schema validation failed.'||cause?.message?.startsWith('AI schema '))cause.code='INVALID_RECOMMENDATIONS';
+            throw cause;
+          }
         }
         p.workflow.gapReport={...qualitySnapshot(p),recommendations:(p.clarificationRecommendations||[]).length,techStackConfigured:availableSolutionReferences(p).length>0};details=p.workflow.gapReport;
       }else if(stage==='CLARIFICATION'){
@@ -243,7 +254,10 @@ async function advanceWorkflow(p,{auto=true,platform}={}){
       const w=ensureWorkflow(persisted);w.state='FAILED';w.currentAttempt=null;
       const failedAttempt=w.attempts.find(x=>x.id===attemptId);if(failedAttempt){failedAttempt.result='FAILED';failedAttempt.finishedAt=new Date().toISOString();}
       const timedOut=cause?.status===504;
-      w.lastError={stage,code:timedOut?'PROVIDER_TIMEOUT':'STEP_FAILED',message:timedOut?'Codex vượt thời gian chờ xử lý. Checkpoint đã được giữ; có thể thử lại qua queue.':'Bước xử lý thất bại. Xem log máy chủ và thử lại qua queue.',at:new Date().toISOString()};
+      const invalidRecommendations=cause?.code==='INVALID_RECOMMENDATIONS';
+      const validationMessages=new Set(['Recommendation references unknown project technology','Each question requires 1-3 options',...['title','answer','benefits','tradeoffs','implementation'].map(key=>`Incomplete proposal ${key}`)]);
+      const detail=invalidRecommendations&&validationMessages.has(cause.message)?cause.message:null;
+      w.lastError={stage,code:timedOut?'PROVIDER_TIMEOUT':invalidRecommendations?'INVALID_RECOMMENDATIONS':'STEP_FAILED',message:timedOut?'Codex vượt thời gian chờ xử lý. Checkpoint đã được giữ; có thể thử lại qua queue.':invalidRecommendations?`Đề xuất AI không hợp lệ${detail?': '+detail:''}. Kết quả phân tích đã lưu được giữ lại; thử lại để tạo đề xuất mới.`:'Bước xử lý thất bại. Xem log máy chủ và thử lại qua queue.',at:new Date().toISOString()};
       persisted.version++;persisted.updatedAt=w.lastError.at;w.updatedAt=w.lastError.at;
       await save(persisted);
       throw Object.assign(new Error(`Workflow ${stage} failed. The checkpoint was retained; retry to resume.`),{status:502});
@@ -706,7 +720,7 @@ async function tickWorker(){
     logExecution('WORKER_JOB_COMPLETE',{projectId:job.project_id,runId:job.run_id,version:result.version});
   }catch(e){
     if(job.options?.kind==='figma-design'){
-      const errorCode=FIGMA_PREFLIGHT_FAILURE_CODES.includes(e?.code)?e.code:'DESIGN_FAILED';
+      const errorCode=FIGMA_DESIGN_FAILURE_CODES.includes(e?.code)?e.code:'DESIGN_FAILED';
       console.error('[BA Worker] Figma design failed',job.id,errorCode);
       try{const failed=await safeGet(job.project_id,job.token);if(failed.figmaDesign?.runId===job.run_id&&failed.figmaDesign.state==='QUEUED'){failed.figmaDesign.state='FAILED';failed.figmaDesign.errorCode=errorCode;failed.version++;failed.updatedAt=new Date().toISOString();auditAs(failed,'worker','FIGMA_DESIGN_FAILED',{runId:job.run_id,revision:failed.figmaDesign.revision,errorCode});await save(failed)}store.finishJob(job.id,job.token,{error:errorCode,retryable:false})}catch(x){console.error('[BA Worker] Figma failure finalization rejected:',x.message)}
     }else{

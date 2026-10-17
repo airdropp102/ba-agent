@@ -9,6 +9,13 @@
 5. Quyết định đặt `requirementsRefreshPending=true`, vô hiệu review và đầu ra phụ thuộc. Chạy workflow/re-analysis rồi BA Review trước khi xuất tài liệu tiếp.
 6. Quyết định cũ giữ trong lịch sử SQLite và workspace archive. Thay question/stack làm proposal stale; không dùng approval cũ cho nội dung mới.
 
+Schema gửi Codex/OpenAI ràng buộc `stackReferences` theo đúng tên trong danh sách
+project hiện hành: technical mode cần ít nhất một reference hợp lệ, business mode
+giữ mảng rỗng. Validation phía server vẫn từ chối reference lạ. Khi GAP_ANALYSIS
+phân tích lại thành công, kết quả được lưu trước khi tạo đề xuất; lỗi đề xuất không
+làm mất kết quả này hoặc buộc retry gọi lại bước phân tích. Đề xuất không hợp lệ
+được ghi `INVALID_RECOMMENDATIONS`; không lưu output lỗi hay tự duyệt phương án.
+
 BA decision không phải customer signoff. Quote chỉ chứng minh có nội dung trong nguồn, không chứng minh chính sách đã được ký duyệt. Suggestions không tự trở thành source evidence hoặc FR được xác nhận.
 
 ## Endpoints

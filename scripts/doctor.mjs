@@ -6,6 +6,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {qualityPolicy} from '../src/quality-intelligence.js';
 import {costRates} from '../src/ai-telemetry.js';
+import {uiUxSkillPath} from '../src/design-skill.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const file=path.join(root,'.env');
@@ -45,6 +46,9 @@ try{
 const external=!['127.0.0.1','localhost','::1'].includes(host);
 record('Network binding',!external||(String(process.env.BA_STUDIO_TOKEN||'').length>=32&&process.env.REQUIRE_REVIEWER_IDENTITY==='true')?'PASS':'FAIL',external?'remote bind; 32-character API token, reviewer identity, HTTPS proxy/VPN required':'localhost only');
 if(checkFigma){
+ const skill=uiUxSkillPath();
+ const skillReady=existsSync(skill)&&existsSync(path.join(path.dirname(skill),'scripts','search.py'));
+ record('UI UX Pro Max skill',skillReady?'PASS':'FAIL',skillReady?'installed skill and search script available':'Install ui-ux-pro-max into CODEX_HOME/skills before drawing');
  const bun=command(process.env.BUN_BIN||'bun',['--version']);record('Bun runtime',bun.ok?'PASS':'FAIL',bun.message||'bun missing');
  const relay=path.join(root,'vendor/talk-to-figma-relay/socket.ts');
  record('Local-safe Figma relay',existsSync(relay)?'PASS':'FAIL',existsSync(relay)?'loopback-only relay source installed':'vendored relay source missing');

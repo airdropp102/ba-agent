@@ -12,6 +12,8 @@ export function approvedGalleryScreens(design){return design?.state==='APPROVED'
 export function screenPreviewUrl(projectId,screenId){return `/api/projects/${encodeURIComponent(projectId)}/figma-design/previews/${encodeURIComponent(screenId)}`}
 export function figmaFailureMessage(code){
  const messages={
+  NO_VERIFIED_SCREENS:'Codex không trả về màn hình đã xác minh. Kiểm tra skill UI UX Pro Max và các tool TalkToFigma. Kiểm tra file Figma trước khi thử vẽ lại vì có thể còn frame tạo dở.',
+  FIGMA_REPORT_REJECTED:'Report Figma không khớp danh sách màn hình, file hoặc node cần xác minh. Kiểm tra file Figma trước khi thử vẽ lại; chưa có bản thiết kế được duyệt.',
   MCP_APPROVAL_REQUIRED:'Codex chưa được cấp quyền gọi TalkToFigma MCP trong phiên chạy nền. Cần phê duyệt quyền tool trước khi thử lại. Lượt này đã dừng trước khi vẽ.',
   PLUGIN_NOT_CONNECTED:'Chưa kết nối được plugin TalkToFigma. Mở plugin trong file Figma, kết nối socket và kiểm tra Channel ID. Lượt này đã dừng trước khi vẽ.',
   FILE_KEY_UNAVAILABLE:'Plugin không trả về mã file Figma. Xác nhận plugin đang mở đúng file theo link đã nhập trước khi thử lại. Lượt này đã dừng trước khi vẽ.',

@@ -14,6 +14,8 @@ export function validateModelOutput(value, schema, {maxBytes=2_000_000, maxStrin
       for(const [key,rule] of Object.entries(props))if(Object.hasOwn(data,key))visit(data[key],rule,`${p}.${key}`,depth+1);
     }else if(s.type==='array'){
       if(!Array.isArray(data))throw new Error(`AI schema expects array at ${p}`);
+      if(s.minItems!==undefined&&data.length<s.minItems)throw new Error(`AI schema array too short at ${p}`);
+      if(s.maxItems!==undefined&&data.length>s.maxItems)throw new Error(`AI schema array too long at ${p}`);
       if(data.length>500)throw new Error(`AI schema excessive array length at ${p}`);
       for(let i=0;i<data.length;i++)visit(data[i],s.items||{},`${p}[${i}]`,depth+1);
     }else if(s.type==='string'){

@@ -4,12 +4,27 @@
  */
 import {fingerprint} from './revisions.js';
 import {candidatePlatforms,solutionReferences} from './erp-intelligence.js';
+import {clarificationRecommendationSchema} from './schemas.js';
 
 const fields=['frontend','backend','mobile','database','infrastructure','integrations','constraints'];
 const bad=(message,status=400)=>Object.assign(new Error(message),{status});
 const text=(v,max=2000)=>typeof v==='string'?v.trim().slice(0,max):'';
 export const techStackDigest=p=>fingerprint(JSON.stringify(p.solutionProfile||p.erpFitGap?.length?{techStack:p.techStack||null,solutionProfile:p.solutionProfile||null,erpFitGap:p.erpFitGap||[]}:p.techStack||{}));
 export const availableSolutionReferences=p=>solutionReferences(p,availableTechnologies(p.techStack));
+// Constrain generation to the same exact project references checked at persistence.
+// Candidate names remain candidates; constraining a reference never attests capability.
+export function recommendationSchema(p){
+ const schema=structuredClone(clarificationRecommendationSchema);
+ const option=schema.properties.questions.items.properties.options.items.properties;
+ if(p.recommendationMode==='business')option.stackReferences.maxItems=0;
+ else{
+  const references=availableSolutionReferences(p);
+  if(!references.length)throw bad('Configure current stack or ERP candidate platforms before generating recommendations',409);
+  option.stackReferences.minItems=1;
+  option.stackReferences.items={type:'string',enum:references};
+ }
+ return schema;
+}
 export const questionDigest=q=>fingerprint(JSON.stringify({id:q.id,question:q.question,impact:q.impact,origin:q.origin||'',relatedRequirementId:q.relatedRequirementId||''}));
 export function normalizeTechStack(raw){
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw bad('Tech stack object required');
