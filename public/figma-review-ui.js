@@ -1,4 +1,5 @@
 export function figmaUiState({relay,design,job}={}){
+ if(['WAITING_SAMPLE_REVIEW','SAMPLE_APPROVED'].includes(design?.state))return design.state;
  if(design?.state==='WAITING_FOR_REVIEW')return 'WAITING_FOR_REVIEW';
  if(design?.state==='REVISION_REQUESTED')return 'REVISION_REQUESTED';
  if(design?.state==='APPROVED')return 'APPROVED';
@@ -12,6 +13,11 @@ export function approvedGalleryScreens(design){return design?.state==='APPROVED'
 export function screenPreviewUrl(projectId,screenId){return `/api/projects/${encodeURIComponent(projectId)}/figma-design/previews/${encodeURIComponent(screenId)}`}
 export function figmaFailureMessage(code){
  const messages={
+  ASSET_PLUGIN_REQUIRED:'Nguồn tự tải cần plugin BA Studio TalkToFigma + Assets. Tải plugin ở phần Thư viện component / asset, cài vào Figma và kết nối lại. Chưa bắt đầu vẽ màn hình.',
+  ASSET_IMPORT_FAILED:'Chèn asset hoặc đọc lại kết quả chưa thành công. Hãy kiểm tra các frame trong Figma trước khi thử lại.',
+  ASSET_SOURCE_REJECTED:'Không tải được asset hợp lệ từ nguồn đã chọn. Kiểm tra link bộ Iconify hoặc link trực tiếp SVG/PNG/JPEG/WebP.',
+  ASSET_SELECTION_FAILED:'Không chuẩn bị được bộ asset cho màn hình. Kiểm tra nguồn đã chọn và kết nối Internet trước khi thử lại.',
+  LIBRARY_UNAVAILABLE:'Không tìm thấy component đã khai báo trong file Figma. Hãy nhập component vào đúng file và kiểm tra node ID trước khi thử lại.',
   NO_VERIFIED_SCREENS:'Codex không trả về màn hình đã xác minh. Kiểm tra skill UI UX Pro Max và các tool TalkToFigma. Kiểm tra file Figma trước khi thử vẽ lại vì có thể còn frame tạo dở.',
   FIGMA_REPORT_REJECTED:'Report Figma không khớp danh sách màn hình, file hoặc node cần xác minh. Kiểm tra file Figma trước khi thử vẽ lại; chưa có bản thiết kế được duyệt.',
   MCP_APPROVAL_REQUIRED:'Codex chưa được cấp quyền gọi TalkToFigma MCP trong phiên chạy nền. Cần phê duyệt quyền tool trước khi thử lại. Lượt này đã dừng trước khi vẽ.',

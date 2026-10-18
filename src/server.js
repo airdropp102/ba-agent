@@ -1,3 +1,7 @@
+import {figmaAssetPluginZip} from './figma-asset-plugin-package.js';
+import {DesignAssetStore,resolveDesignAssets} from './design-assets.js';
+import {createFigmaAssetImporter} from './figma-assets.js';
+import {normalizeDesignDirection,saveDesignDirection,referenceBytes} from './design-direction.js';
 import {currentERPTarget,currentERPDesign,confirmERPTarget,erpDesignInput,acceptERPDesign,reviewERPDesign,invalidateERPDesign,renderERPDesign} from './erp-solution-design.js';
 import {codexTimeoutMs,runCodexStructured} from './codex-provider.js';
 import {withExecutionContext,logExecution} from './execution-log.js';
@@ -25,7 +29,7 @@ import {buildFigmaHandoff} from './figma-handoff.js';
 import {buildPublishPlan} from './figma-registry.js';
 import {createFigmaRelayManager} from './figma-relay.js';
 import {parseFigmaDesignInput,beginFigmaDesign,completeFigmaDesign,reviewFigmaDesign,recordFigmaFileConfirmation} from './figma-design-review.js';
-import {publishFigmaDesign,FIGMA_DESIGN_FAILURE_CODES} from './figma-publisher.js';
+import {publishFigmaDesign,buildFigmaDesignPlan,FIGMA_DESIGN_FAILURE_CODES} from './figma-publisher.js';
 import {FigmaPreviewStore} from './figma-preview-store.js';
 import {exportFigmaPreview} from './figma-preview-export.js';
 import {normalizeTechStack,createRecommendations,recordDecision,validDecision,techStackDigest,availableSolutionReferences} from './clarification-recommendations.js';
@@ -43,6 +47,7 @@ await fs.mkdir(dataDir,{recursive:true,mode:0o700});
 const store=new ProductionStore(dataDir);
 const workspaces=new ProjectWorkspaces(store);
 const figmaPreviews=new FigmaPreviewStore(store,{dataDir});
+const designAssets=new DesignAssetStore(store);
 const figmaRelay=createFigmaRelayManager({bunExecutable:process.env.BUN_BIN||'bun',relayEntry:path.join(root,'vendor/talk-to-figma-relay/socket.ts'),host:process.env.FIGMA_RELAY_HOST||'127.0.0.1',port:Number(process.env.FIGMA_RELAY_PORT||3055)});
 setTelemetrySink(event=>store.recordAIUsage(event));
 const qualitySettings=qualityPolicy();
@@ -57,8 +62,9 @@ const token=process.env.BA_STUDIO_TOKEN||'';
 if (publicBind && token.length<32)throw new Error('Public HOST requires BA_STUDIO_TOKEN at least 32 characters. Local-first security gate.');
 const validToken=(provided)=>{const a=createHash('sha256').update(provided||'').digest(),b=createHash('sha256').update(token).digest();return timingSafeEqual(a,b) && Boolean(provided)};
 const isId = s => /^[0-9a-f-]{36}$/i.test(s);
-const registryPath=(id,key)=>{
-  const scoped=path.join(figmaRegistryDirectory(dataDir,id),`${key}.json`);
+const registryPath=(id,key,platform='web')=>{
+  const scoped=path.join(figmaRegistryDirectory(dataDir,id,platform),`${key}.json`);
+  if(platform!=='web')return scoped;
   return existsSync(scoped)?scoped:path.join(dataDir,'.figma-registry',id,`${key}.json`);
 };
 const safeGet=async(id,leaseToken)=>{if(!isId(id))throw Object.assign(new Error('ID không hợp lệ'),{status:400});return store.get(id,{leaseToken});};
@@ -285,6 +291,7 @@ async function handler(req,res){
       if(String(req.headers['content-type']||'').split(';')[0].trim()!=='application/json')return error(res,'Content-Type must be application/json',415);
     }
     if(req.method==='GET'&&url.pathname==='/api/status')return json(res,{demo,provider:mode,model:mode==='demo'?'demo':mode==='codex'?(process.env.CODEX_MODEL||'codex-cli'):process.env.OPENAI_MODEL||'gpt-4.1-mini',localOnly:!publicBind,engine:'sqlite-wal-v3.4',qualityPolicy:qualitySettings,durableJobs:true,progressLogging:process.env.BA_LOG_PROGRESS!=='false',...(mode==='codex'?{codexTimeoutMs:codexTimeoutMs(process.env.CODEX_TIMEOUT_MS)}:{})});
+    if(req.method==='GET'&&url.pathname==='/api/figma/asset-plugin.zip'){const bytes=await figmaAssetPluginZip();res.writeHead(200,{'Content-Type':'application/zip','Content-Length':bytes.length,'Content-Disposition':'attachment; filename=ba-studio-talk-to-figma-assets.zip','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes)}
     if(url.pathname.startsWith('/api/figma/relay')){
       if(publicBind)return error(res,'Figma relay controls are available only on loopback BA Studio',403);
       if(req.method==='GET'&&url.pathname==='/api/figma/relay')return json(res,figmaRelay.status());
@@ -324,6 +331,15 @@ async function handler(req,res){
         if(process.env.REQUIRE_IF_MATCH==='true' && expected===undefined)return error(res,'If-Match version required for mutation.',428);
       }
       if(segments.length===3&&req.method==='GET')return json(res,p);
+      if(segments[3]==='design-assets'&&segments.length===4&&req.method==='GET')return json(res,designAssets.list(p.id).filter(a=>a.directionDigest===p.designDirection?.digest));
+      if(segments[3]==='design-assets'&&segments.length===5&&req.method==='GET'){
+        const {asset,bytes}=await designAssets.read(p.id,segments[4]);res.writeHead(200,{'Content-Type':asset.contentType,'Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"});return res.end(bytes);
+      }
+      if(segments[3]==='design-direction'&&segments.length===4&&req.method==='POST'){
+        const body=await readBody(req),actor=reviewerId(req);let next;
+        try{const direction=await normalizeDesignDirection(p,body,(id,doc)=>workspaces.readDocument(id,doc));next=saveDesignDirection(p,direction,actor);if(direction.digest===p.designDirection?.digest&&JSON.stringify(direction.briefOptions)===JSON.stringify(p.designDirection?.briefOptions))return json(res,p)}catch(e){return error(res,e.message,400)}
+        next.version++;if(next.figmaDesign?.draft)next.figmaDesign.draft.projectVersion=next.version;if(next.figmaDesign?.approved)next.figmaDesign.approved.projectVersion=next.version;next.updatedAt=new Date().toISOString();auditAs(next,actor,'DESIGN_DIRECTION_SAVED',{digest:next.designDirection.digest,referenceCount:next.designDirection.references.length,libraryCount:next.designDirection.library.length});store.attach(next,p._dbRevision,requestLease);await save(next);return json(res,next);
+      }
       if(segments[3]==='figma-design'&&segments.length===4&&req.method==='GET'){
         const design=p.figmaDesign?structuredClone(p.figmaDesign):null;if(design){delete design.channelId;delete design.revisionNotes}
         const jobs=store.jobs(p.id).filter(j=>j.options?.kind==='figma-design');return json(res,{projectId:p.id,version:p.version,figmaDesign:design,job:jobs[0]||null});
@@ -333,17 +349,25 @@ async function handler(req,res){
         if(p.review?.approved!==true||!p.prototype?.screens?.length)return error(res,'BA Review và prototype hiện tại là điều kiện bắt buộc trước khi vẽ Figma.',409);
         if(figmaRelay.status().state!=='READY')return error(res,'Hãy khởi chạy Figma relay và kết nối plugin trước khi tiếp tục.',409);
         const body=await readBody(req);let connection,revisionNotes='';
+        if(p.designDirection&&body.visualInputsConfirmed!==true)return error(res,'Xác nhận cho phép sử dụng Design Brief và ảnh tham khảo cho lượt vẽ này.',400);
+        const platform=body.platform!==undefined?body.platform:(p.figmaDesign?.platform||p.workflow?.platform||'web');
+        if(!['web','mobile'].includes(platform))return error(res,'Invalid Figma platform',400);
+        if(body.screenIds!==undefined&&body.revisionNotes===undefined)return error(res,'Selected screens require a revision request',400);
         if(body.fileIdentityConfirmed!==undefined&&typeof body.fileIdentityConfirmed!=='boolean')return error(res,'File identity confirmation must be an explicit boolean.',400);
         if(body.revisionNotes!==undefined){
           revisionNotes=String(body.revisionNotes);if(!revisionNotes.trim()||revisionNotes.length>3000)return error(res,'Revision feedback phải có nội dung và tối đa 3000 ký tự.',400);
-          if(p.figmaDesign?.state!=='REVISION_REQUESTED'||!(body.channelId||p.figmaDesign.channelId))return error(res,'Không có bản design đang chờ chỉnh sửa hoặc chưa nhập Channel ID đang kết nối.',409);
+          if(!(p.figmaDesign?.state==='REVISION_REQUESTED'||p.figmaDesign?.state==='FAILED'&&p.figmaDesign?.screenIds)||!(body.channelId||p.figmaDesign.channelId))return error(res,'Không có bản design đang chờ chỉnh sửa hoặc chưa nhập Channel ID đang kết nối.',409);
           try{connection=body.channelId===undefined?{documentKey:p.figmaDesign.documentKey,channelId:p.figmaDesign.channelId}:parseFigmaDesignInput({fileUrl:`https://www.figma.com/design/${p.figmaDesign.documentKey}`,channelId:body.channelId})}catch(e){return error(res,e.message,400)}
         }else{try{connection=parseFigmaDesignInput(body)}catch(e){return error(res,e.message,400)}}
         const runId=randomUUID(),projectVersion=p.version+1;
-        const next=beginFigmaDesign(p,{...connection,jobId:runId});next.figmaDesign.state='QUEUED';next.figmaDesign.revisionNotes=revisionNotes;
+        let next;
+        const samePlatform=platform===(p.figmaDesign?.platform||p.workflow?.platform||'web');
+        const screenIds=body.screenIds!==undefined?body.screenIds:(revisionNotes&&samePlatform?(p.figmaDesign?.revisionScreenIds||p.figmaDesign?.screenIds):undefined);
+        try{next=beginFigmaDesign(p,{...connection,jobId:runId,platform,screenIds,mode:body.mode});}catch(e){return error(res,e.message,409)}
+        next.figmaDesign.state='QUEUED';next.figmaDesign.visualInputsConfirmed=body.visualInputsConfirmed===true;next.figmaDesign.revisionNotes=revisionNotes;
         next.version=projectVersion;next.figmaDesign.projectVersion=projectVersion;next.updatedAt=new Date().toISOString();
         next.figmaDesign.fileConfirmation=recordFigmaFileConfirmation(next,{confirmed:body.fileIdentityConfirmed,runId,...connection,projectVersion,confirmedBy:reviewerId(req)});
-        const job=store.enqueue(p.id,runId,{kind:'figma-design',documentKey:connection.documentKey,channelId:connection.channelId,revisionNotes,projectVersion},{maxAttempts:1});
+        const job=store.enqueue(p.id,runId,{kind:'figma-design',documentKey:connection.documentKey,channelId:connection.channelId,revisionNotes,platform,mode:next.figmaDesign.mode,...(next.figmaDesign.screenIds?{screenIds:next.figmaDesign.screenIds}:{}),projectVersion},{maxAttempts:1});
         auditAs(next,reviewerId(req),'FIGMA_DESIGN_QUEUED',{runId,revision:next.figmaDesign.revision,projectVersion,fileConfirmation:next.figmaDesign.fileConfirmation});store.attach(next,p._dbRevision,requestLease);await save(next);
         return json(res,{projectId:p.id,version:next.version,figmaDesign:{...next.figmaDesign,channelId:undefined},jobId:job.id,state:'QUEUED'},202);
       }
@@ -352,12 +376,12 @@ async function handler(req,res){
         try{next=reviewFigmaDesign(p,{...body,reviewerId:actor})}catch(e){return error(res,e.message,409)}
         next.version++;next.updatedAt=new Date().toISOString();if(next.figmaDesign.draft)next.figmaDesign.draft.projectVersion=next.version;
         if(body.decision==='APPROVE'&&next.figmaDesign.approved)next.figmaDesign.approved.projectVersion=next.version;
-        auditAs(next,actor,'FIGMA_DESIGN_'+body.decision,{manifestDigest:body.manifestDigest,projectVersion:body.projectVersion,screenIds:next.figmaDesign.history.at(-1).screenIds});store.attach(next,p._dbRevision,requestLease);await save(next);
+        auditAs(next,actor,(next.figmaDesign.mode==='sample'?'FIGMA_SAMPLE_':'FIGMA_DESIGN_')+body.decision,{manifestDigest:body.manifestDigest,projectVersion:body.projectVersion,screenIds:next.figmaDesign.history.at(-1).screenIds});store.attach(next,p._dbRevision,requestLease);await save(next);
         const design=structuredClone(next.figmaDesign);delete design.channelId;delete design.revisionNotes;return json(res,{projectId:next.id,version:next.version,figmaDesign:design});
       }
       if(segments[3]==='figma-design'&&segments[4]==='previews'&&segments[5]&&segments.length===6&&req.method==='GET'){
         const screenId=segments[5],design=p.figmaDesign;
-        const screens=design?.state==='WAITING_FOR_REVIEW'&&design.draft?.projectVersion===p.version?design.screens:design?.state==='APPROVED'&&design.approved?.projectVersion===p.version?design.approved.screens:null;
+        const screens=['WAITING_FOR_REVIEW','WAITING_SAMPLE_REVIEW','SAMPLE_APPROVED'].includes(design?.state)&&design.draft?.projectVersion===p.version?design.screens:design?.state==='APPROVED'&&design.approved?.projectVersion===p.version?design.approved.screens:null;
         const item=screens?.find(s=>s.screenId===screenId);if(!item)return error(res,'Preview is not available for this project screen',404);
         const bytes=await figmaPreviews.read(p.id,item.preview.path,item.preview);
         res.writeHead(200,{'Content-Type':item.preview.contentType,'Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);
@@ -462,6 +486,11 @@ async function handler(req,res){
         const body=await readBody(req,7_100_000);
         const doc=await workspaces.addDocument(p.id,{category:body.category,filename:body.filename,content:body.content,encoding:body.encoding,actorId:reviewerId(req)});
         return json(res,doc,201);
+      }
+      if(segments[3]==='files'&&segments.length===6&&segments[5]==='preview'&&req.method==='GET'){
+        const doc=await workspaces.readDocument(p.id,segments[4]);let bytes;try{bytes=referenceBytes(doc)}catch(e){return error(res,e.message,400)}
+        const type=/\.png$/i.test(doc.filename)?'image/png':/\.webp$/i.test(doc.filename)?'image/webp':'image/jpeg';
+        res.writeHead(200,{'Content-Type':type,'Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);
       }
       if(segments[3]==='files'&&segments.length===5&&req.method==='GET')return json(res,await workspaces.readDocument(p.id,segments[4]));
 
@@ -659,12 +688,13 @@ async function handler(req,res){
         if(!docsFilename[kind])return error(res,'Định dạng export không tồn tại',404);
         if(kind==='prototype'&&!p.prototype)return error(res,'Chưa tạo prototype.',409);
         if(['figma','figma-manifest'].includes(kind)&&!p.analysis.functionalRequirements.length)return error(res,'Cần tối thiểu một yêu cầu chức năng để lập Figma design pack.',409);
-        const content=kind==='prd'?renderPRD(p):kind==='brd'?renderBRD(p):kind==='srs'?renderSRS(p):kind==='questions'?renderQuestionnaire(p):kind==='prototype'?renderStandalone(p):kind==='canonical'?JSON.stringify(buildCanonicalPackage(p),null,2):kind==='figma'?buildFigmaHandoff(p).instructions:kind==='figma-manifest'?JSON.stringify(buildFigmaHandoff(p).manifest,null,2):JSON.stringify({analysis:p.analysis,prototype:p.prototype,review:p.review},null,2);
+        if(kind==='prototype'&&url.searchParams.has('platform')&&!['web','mobile'].includes(url.searchParams.get('platform')))return error(res,'Invalid prototype platform',400);
+        const content=kind==='prd'?renderPRD(p):kind==='brd'?renderBRD(p):kind==='srs'?renderSRS(p):kind==='questions'?renderQuestionnaire(p):kind==='prototype'?renderStandalone(p,url.searchParams.has('platform')?{platform:url.searchParams.get('platform')}:{}):kind==='canonical'?JSON.stringify(buildCanonicalPackage(p),null,2):kind==='figma'?buildFigmaHandoff(p).instructions:kind==='figma-manifest'?JSON.stringify(buildFigmaHandoff(p).manifest,null,2):JSON.stringify({analysis:p.analysis,prototype:p.prototype,review:p.review},null,2);
         return sendDownload(res,docsFilename[kind],content,kind==='prototype'?'text/html; charset=utf-8':['json','canonical','figma-manifest'].includes(kind)?'application/json; charset=utf-8':'text/markdown; charset=utf-8');
       }
     }
     if(req.method==='GET' && !url.pathname.startsWith('/api/')){
-      const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/workflow-progress.js':'workflow-progress.js','/quality-dashboard-ui.js':'quality-dashboard-ui.js','/clarification-ui.js':'clarification-ui.js','/clarification-batch-ui.js':'clarification-batch-ui.js','/figma-review-ui.js':'figma-review-ui.js'};
+      const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/workflow-progress.js':'workflow-progress.js','/quality-dashboard-ui.js':'quality-dashboard-ui.js','/clarification-ui.js':'clarification-ui.js','/clarification-batch-ui.js':'clarification-batch-ui.js','/figma-review-ui.js':'figma-review-ui.js','/design-direction-ui.js':'design-direction-ui.js','/design-brief-options.js':'design-brief-options.js','/design-brief-controls.js':'design-brief-controls.js'};
       const file=files[url.pathname];if(!file)return error(res,'Not Found',404);
       const content=await fs.readFile(path.join(publicDir,file));res.writeHead(200,{'Content-Type':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.js')?'application/javascript; charset=utf-8':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff'});return res.end(content);
     }
@@ -696,20 +726,31 @@ async function tickWorker(){
       if(!design||design.runId!==runId||design.state!=='QUEUED'||design.projectVersion!==p.version||job.options.projectVersion!==p.version)throw new Error('Figma design run is stale or inactive');
       if(figmaRelay.status().state!=='READY')throw new Error('Figma relay is not ready');
       design.state='DESIGNING';
-      const platform=p.workflow?.platform||'web',handoff=buildFigmaHandoff(p,{platform});
+      const platform=design.platform||job.options.platform||p.workflow?.platform||'web',handoff=buildFigmaHandoff(p,{platform});
       const outputDirectory=path.join(workspaces.root(p.id),'04-figma','exports',`v${p.version}-${platform}`);
       await fs.mkdir(outputDirectory,{recursive:true,mode:0o700});
-      const files={'BRD.md':handoff.brd,'SRS.md':handoff.srs,'canonical.json':JSON.stringify(handoff.canonical,null,2),'figma-manifest.json':JSON.stringify(handoff.manifest,null,2),'FIGMA_INSTRUCTIONS.md':handoff.instructions,'figma-publish-plan.json':JSON.stringify(buildPublishPlan(handoff.manifest),null,2)};
-      for(const [name,content] of Object.entries(files))await fs.writeFile(path.join(outputDirectory,name),content,{mode:0o600});
-      const registryFile=registryPath(p.id,job.options.documentKey);let registry=null;
+      const registryFile=registryPath(p.id,job.options.documentKey,platform);let registry=null;
       if(existsSync(registryFile))registry=JSON.parse(await fs.readFile(registryFile,'utf8'));
-      const published=await withExecutionContext({projectId:p.id,runId,stage:'FIGMA_DESIGN',provider:'codex',model:process.env.CODEX_MODEL||'codex-cli'},()=>publishFigmaDesign({project:p,designPack:handoff,runId,fileConfirmation:design.fileConfirmation,previewExporter:options=>exportFigmaPreview({...options,port:Number(process.env.FIGMA_RELAY_PORT||3055)}),documentKey:job.options.documentKey,channelId:job.options.channelId,revisionNotes:job.options.revisionNotes||'',outputDirectory,registry,runner:(prompt,schema,options)=>runCodexStructured(prompt,schema,{...options,timeoutMs:codexTimeoutMs(process.env.CODEX_FIGMA_TIMEOUT_MS||600000)})}));
-      const registryDir=figmaRegistryDirectory(dataDir,p.id);await fs.mkdir(registryDir,{recursive:true,mode:0o700});
+      const designPlan=buildFigmaDesignPlan(p,handoff.manifest,registry,{revisionNotes:job.options.revisionNotes||'',screenIds:job.options.screenIds,mode:design.mode,documentKey:job.options.documentKey});
+      const imagePaths=[];
+      if(p.designDirection){
+        if(design.visualInputsConfirmed!==true)throw new Error('Visual input consent required');
+        for(const [index,ref] of p.designDirection.references.entries()){
+          const doc=await workspaces.readDocument(p.id,ref.documentId);if(doc.sha256!==ref.sha256)throw new Error('Reference image changed');
+          const bytes=referenceBytes(doc),filename=`reference-${index+1}.${doc.filename.split('.').at(-1).toLowerCase()}`,target=path.join(outputDirectory,filename);
+          await fs.writeFile(target,bytes,{mode:0o600});imagePaths.push(target);
+        }
+      }
+      const files={...(p.designDirection?{'DESIGN_BRIEF.json':JSON.stringify(p.designDirection,null,2)}:{}),'BRD.md':handoff.brd,'SRS.md':handoff.srs,'canonical.json':JSON.stringify(handoff.canonical,null,2),'figma-manifest.json':JSON.stringify(handoff.manifest,null,2),'FIGMA_INSTRUCTIONS.md':handoff.instructions,'figma-publish-plan.json':JSON.stringify(designPlan,null,2)};
+      for(const [name,content] of Object.entries(files))await fs.writeFile(path.join(outputDirectory,name),content,{mode:0o600});
+      const structuredRunner=(prompt,schema,options)=>runCodexStructured(prompt,schema,{...options,timeoutMs:codexTimeoutMs(process.env.CODEX_FIGMA_TIMEOUT_MS||600000)});
+      const published=await withExecutionContext({projectId:p.id,runId,stage:'FIGMA_DESIGN',provider:'codex',model:process.env.CODEX_MODEL||'codex-cli'},()=>publishFigmaDesign({project:p,designPack:handoff,runId,fileConfirmation:design.fileConfirmation,previewExporter:options=>exportFigmaPreview({...options,port:Number(process.env.FIGMA_RELAY_PORT||3055)}),documentKey:job.options.documentKey,channelId:job.options.channelId,revisionNotes:job.options.revisionNotes||'',screenIds:job.options.screenIds,mode:design.mode,imagePaths,outputDirectory,registry,assetResolver:({screenIds})=>resolveDesignAssets({project:p,screenIds,store:designAssets,runner:structuredRunner,outputDirectory}),assetImporter:createFigmaAssetImporter({channelId:job.options.channelId,documentKey:job.options.documentKey,runId,store:designAssets,projectId:p.id,port:Number(process.env.FIGMA_RELAY_PORT||3055)}),runner:structuredRunner}));
+      const registryDir=figmaRegistryDirectory(dataDir,p.id,platform);await fs.mkdir(registryDir,{recursive:true,mode:0o700});
       const registryTarget=path.join(registryDir,`${job.options.documentKey}.json`),registryTemp=registryTarget+'.'+randomUUID()+'.tmp';
       try{await fs.writeFile(registryTemp,JSON.stringify(published.registry,null,2),{flag:'wx',mode:0o600});await fs.rename(registryTemp,registryTarget)}finally{await fs.rm(registryTemp,{force:true}).catch(()=>{})}
       const previewFiles=await figmaPreviews.write(p.id,{version:p.version,platform,runId,previews:published.previews});
       const next=completeFigmaDesign(p,{runId,projectVersion:p.version,manifestDigest:published.manifestDigest,screens:published.screens,previewFiles});
-      next.figmaDesign.fileIdentity=published.fileIdentity;next.version++;next.figmaDesign.projectVersion=next.version;next.figmaDesign.draft.projectVersion=next.version;delete next.figmaDesign.revisionNotes;next.updatedAt=new Date().toISOString();
+      delete next.figmaDesign.retainedAssets;delete next.figmaDesign.retainedAssetEvidence;next.figmaDesign.fileIdentity=published.fileIdentity;if(published.assets?.length){next.figmaDesign.assets=published.assets;next.figmaDesign.assetEvidence=published.assetEvidence;}next.version++;next.figmaDesign.projectVersion=next.version;next.figmaDesign.draft.projectVersion=next.version;delete next.figmaDesign.revisionNotes;next.updatedAt=new Date().toISOString();
       auditAs(next,'worker','FIGMA_DESIGN_READY_FOR_REVIEW',{runId,revision:next.figmaDesign.revision,manifestDigest:published.manifestDigest,screenIds:next.figmaDesign.draft.screenIds,projectVersion:next.version});
       store.attach(next,p._dbRevision,job.token);await save(next);store.finishJob(job.id,job.token,{resultVersion:next.version});
       logExecution('WORKER_FIGMA_DESIGN_COMPLETE',{projectId:p.id,runId,version:next.version,screens:previewFiles.length});return;

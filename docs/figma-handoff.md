@@ -63,3 +63,34 @@ When TalkToFigma does not expose `create_section`, the publisher uses a new name
 The design prompt points to the installed `ui-ux-pro-max/SKILL.md` under `CODEX_HOME/skills` (default `~/.codex/skills`), independently of the isolated design-pack directory. `npm run doctor -- --figma` checks that the skill and search script exist. Install the skill before drawing if missing.
 
 A schema-valid report with no screens now fails as `NO_VERIFIED_SCREENS`; other rejected screen reports fail as `FIGMA_REPORT_REJECTED`. Neither status implies that the remote file is unchanged. Inspect the file before an explicit retry; no automatic drawing retry or approval is introduced.
+
+## Web/Mobile app và chỉnh sửa từng màn hình
+
+Prototype có bộ chọn `Web` / `Mobile app` cho wireframe HTML, file tải xuống và lượt vẽ Figma tiếp theo. Lựa chọn được gửi bằng `platform:"web"|"mobile"` ở POST `figma-design`; không thay nền tảng đã khóa của workflow BA. Mobile dùng viewport 390×844 trong manifest. Mỗi lượt có một nền tảng hiện hành; chuyển nền tảng tạo bản cần duyệt mới, không kế thừa approval nền tảng trước. Các snapshot SQLite và frame cũ giữ nguyên. Registry Web giữ đường dẫn cũ, Mobile dùng `04-figma/registry/mobile/<file-key>.json` để tránh ghi đè registry Web.
+
+Mỗi card màn hình trong draft/approved gallery có form **Chỉnh sửa màn hình này**. Form gửi `REQUEST_CHANGES` cùng `screenIds:["SCR-..."]`, ghi nhận đúng phạm vi và phản hồi. Người vận hành xác nhận file/channel rồi bấm **Vẽ lại màn hình đã chọn**. Server gắn phạm vi vào job; khi giữ nguyên nền tảng, không cho đổi file hoặc nới phạm vi màn hình của request này. Bộ chọn nền tảng vẫn hoạt động khi yêu cầu chỉnh sửa. Nếu đổi Web/Mobile app, UI thông báo rõ rằng toàn bộ màn hình sẽ được vẽ mới cho nền tảng mới; không tái sử dụng frame khác nền tảng và không kế thừa approval. API chuyển nền tảng không gửi `screenIds`; gửi scope màn hình cũ kèm nền tảng mới sẽ bị từ chối. Request không có `screenIds` tiếp tục là chỉnh sửa toàn bộ như API cũ.
+
+Publisher chỉ tạo frame mới cho màn hình đã chọn. Màn hình không chọn phải có registry hash/node hợp lệ với yêu cầu hiện tại; nếu không, dừng trước khi vẽ để tránh giữ lại thiết kế stale. Preview đầy đủ được đọc lại và bản kết hợp vẫn cần duyệt toàn bộ; không tự approve các frame mới. Các node cũ được giữ nguyên. Lỗi/retry không tự chạy lại và giữ phạm vi màn hình đã chọn. `GET export/prototype.html?platform=mobile` tải wireframe Mobile; URL cũ không có query vẫn hoạt động.
+
+### Design Brief, tư liệu và mẫu thiết kế
+
+Trong Prototype, lưu **Định hướng thiết kế** trước khi vẽ: mục tiêu/cảm nhận, phong cách, người dùng, màu thương hiệu, font, mật độ và điều cần tránh. Chọn một SCR đại diện làm màn hình mẫu. Có thể tải tối đa 6 ảnh PNG/JPEG/WebP (5 MiB/ảnh, tổng 20 MiB), ghi rõ điểm muốn học từ mỗi ảnh. Không sao chép thêm nghiệp vụ từ ảnh tham khảo.
+
+Thư viện component/asset ghi tên, loại, component node ID của file đang mở (nếu có), URL HTTPS, giấy phép và vị trí sử dụng. Nhập component/icon vào file Figma trước; publisher kiểm tra node có sẵn rồi dùng instance. URL không được tự tải, nhãn giấy phép cần người vận hành đối chiếu. Ảnh tải lên là visual reference gửi kèm Codex; không tự nhúng ảnh tham khảo vào Figma. Muốn chèn asset thật, chọn nguồn tự tải và dùng plugin extension bên dưới.
+
+Sau khi lưu, bấm **Vẽ màn hình mẫu**, xác nhận đúng file và cho phép dùng brief/ảnh cho lượt này. Kiểm tra preview cùng frame thật rồi **Duyệt màn hình mẫu** hoặc yêu cầu chỉnh sửa. Mẫu được duyệt chỉ chốt hướng thị giác, không duyệt toàn bộ prototype. Lượt **Vẽ các màn hình còn lại** tái sử dụng mẫu trong registry phù hợp, sau đó vẫn cần duyệt đủ bộ màn hình. Đổi brief/tư liệu, yêu cầu nghiệp vụ, nền tảng hoặc file cần mẫu hợp lệ lại. API `POST /api/projects/:id/design-direction` lưu cấu hình với If-Match như các mutation khác; `POST .../figma-design` nhận `mode: sample|full` (mặc định tự chọn theo approval hiện hành), `visualInputsConfirmed:true` là bắt buộc cho project có brief. Không thể yêu cầu full để bỏ qua sample gate.
+
+### Tự tải icon và asset từ link
+
+1. Trong **Thư viện component / asset**, bấm **Thêm link thư viện / asset**.
+2. Dán link bộ Iconify, ví dụ `https://icon-sets.iconify.design/lucide/`, hoặc link trực tiếp SVG/PNG/JPEG/WebP. Không cần node ID. Có thể chọn nguồn rõ ràng hoặc để **Tự nhận dạng link**. Link trang giới thiệu không phải link asset trực tiếp; mục **Link tham khảo** vẫn chỉ là ghi chú.
+3. Ghi cách dùng nếu có, lưu brief. Lượt vẽ có xác nhận tải asset mới tự chọn icon từ danh sách thực của bộ icon. Chỉ asset được chọn cho màn hình đang vẽ được tải, cache và đưa vào các vị trí đã tạo. Đổi nền tảng vẫn cần mẫu hợp lệ riêng.
+4. Mở **Cài plugin hỗ trợ tự chèn icon và ảnh**, tải ZIP và giải nén vào thư mục cố định. Trong Figma Desktop chọn **Plugins → Development → Import plugin from manifest…**, trỏ tới `manifest.json`. Nếu môi trường Figma yêu cầu ID do tài khoản cấp, tạo plugin development trong Figma và dùng ID được tạo cho manifest này.
+5. Đóng plugin TalkToFigma cũ, mở **BA Studio TalkToFigma + Assets**, Connect với socket local và dùng Channel ID mới. Không cần sửa cấu hình MCP hiện có. Bản Community chưa có các lệnh asset mới; hệ thống sẽ dừng trước khi vẽ nếu thiếu chúng.
+6. Vẽ, kiểm tra frame thật và **Duyệt màn hình mẫu**. Gallery asset đã tải hiển thị thumbnail và nguồn để đối chiếu. License lấy từ nguồn/operator chưa được hệ thống xác minh. Ảnh tải lên mục tham khảo vẫn là nguồn cảm hứng; muốn chèn ảnh thật hãy khai báo nó thành một nguồn asset trực tiếp.
+
+Cấu hình API giữ `name/kind/componentId/sourceUrl/license/usage` cũ; nguồn mới thêm `sourceType`, Iconify lưu thêm `prefix`. `GET /api/projects/:id/design-assets` trả metadata cache theo direction hiện hành; `GET .../design-assets/:assetId` đọc bytes có kiểm tra checksum/project. `GET /api/figma/asset-plugin.zip` tải gói plugin công khai. Không có API tải link tuỳ ý ngoài lượt vẽ đã được xác nhận.
+
+Source: [Iconify API](https://iconify.design/docs/api/), [Figma Plugin API](https://developers.figma.com/docs/plugins/api/figma/), [upstream TalkToFigma](https://github.com/grab/cursor-talk-to-figma-mcp) pinned at `ddd90f3a6d454ea0b2fc29f1b084f50fd062b880`.
+
+Plugin development manifest chỉ khai báo `http://localhost:3055` và `ws://localhost:3055` trong `devAllowedDomains`, với `allowedDomains: ["none"]`. Figma đã từ chối IP literal `ws://127.0.0.1:3055` khi import gói cũ. Nếu gặp lỗi này, tải lại ZIP, thay file đã giải nén rồi import lại manifest; không cần đổi host của server relay đang bind loopback. Build/ZIP checks bảo vệ cấu hình local này; không thay thế kiểm tra import thực trong Figma.

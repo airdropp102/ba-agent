@@ -165,16 +165,26 @@ test('approved Figma design reopens through the API and queues a revision on a f
   const draft=completeFigmaDesign(start,{runId:start.figmaDesign.runId,projectVersion:10,manifestDigest,screens,previewFiles:files});
   const approved=reviewFigmaDesign(draft,{decision:'APPROVE',notes:'OFFLINE FIXTURE',reviewerId:'fixture-reviewer',projectVersion:10,manifestDigest});
   approved.version=11;approved.figmaDesign.draft.projectVersion=11;approved.figmaDesign.approved.projectVersion=11;
-  const store=new ProductionStore(dir);store.save(approved);store.db.close();
+  const mobileId=randomUUID(),mobileRevisionId=randomUUID();
+  const store=new ProductionStore(dir);store.save(approved);store.save({...structuredClone(approved),id:mobileRevisionId});store.save({...p,id:mobileId,workflow:{runId:randomUUID(),platform:'web'}});store.db.close();
   const fakeBun=path.join(dir,'fake-bun.cjs');await writeFile(fakeBun,'#!/usr/bin/env node\nrequire("node:net").createServer().listen(Number(process.env.FIGMA_RELAY_PORT),"127.0.0.1");\n',{mode:0o700});
   server=await launch(dir,{port:47000+Math.floor(Math.random()*2000),env:{BA_WORKER_ENABLED:'false',BUN_BIN:fakeBun,FIGMA_RELAY_PORT:String(42000+Math.floor(Math.random()*5000))}});
   const base=`/api/projects/${id}`;
-  const reopened=await server.api(base+'/figma-design/review','POST',{decision:'REQUEST_CHANGES',notes:'Update the approved screen typography',projectVersion:11,manifestDigest});
+  const invalid=await server.api(base+'/figma-design/review','POST',{decision:'REQUEST_CHANGES',notes:'Invalid screen',screenIds:['SCR-999'],projectVersion:11,manifestDigest});assert.equal(invalid.status,409);
+  const reopened=await server.api(base+'/figma-design/review','POST',{decision:'REQUEST_CHANGES',notes:'Update the approved screen typography',screenIds:['SCR-002'],projectVersion:11,manifestDigest});
   assert.equal(reopened.status,200,JSON.stringify(reopened.data));assert.equal(reopened.data.figmaDesign.state,'REVISION_REQUESTED');assert.equal(reopened.data.figmaDesign.approved.projectVersion,11);
   assert.equal(reopened.data.figmaDesign.history.length,2);assert.equal((await server.api(base)).data.review.customerApproved,false);
   assert.equal((await server.api('/api/figma/relay/start','POST',{})).status,200);
+  assert.equal((await server.api(base+'/figma-design','POST',{platform:'mobile',revisionNotes:'Cannot mix a selected web revision into mobile',screenIds:['SCR-002'],channelId:'fresh-private-channel'})).status,409);
   const queued=await server.api(base+'/figma-design','POST',{revisionNotes:'Update the approved screen typography',channelId:'fresh-private-channel',fileIdentityConfirmed:true});
   assert.equal(queued.status,202,JSON.stringify(queued.data));assert.equal(queued.data.figmaDesign.approved.projectVersion,11);
+  assert.deepEqual(queued.data.figmaDesign.screenIds,['SCR-002']);assert.equal(queued.data.figmaDesign.platform,'web');
+  const jobDetails=await server.api(base+'/workflow/jobs/'+queued.data.jobId);assert.deepEqual(jobDetails.data.options.screenIds,['SCR-002']);assert.equal(jobDetails.data.options.platform,'web');
+  const mobile=await server.api(`/api/projects/${mobileId}/figma-design`,'POST',{platform:'mobile',fileUrl:'https://www.figma.com/design/fixture-file/Test',channelId:'mobile-channel',fileIdentityConfirmed:true});assert.equal(mobile.status,202,JSON.stringify(mobile.data));assert.equal(mobile.data.figmaDesign.platform,'mobile');assert.equal((await server.api(`/api/projects/${mobileId}`)).data.workflow.platform,'web');
+  const mobileRevisionBase=`/api/projects/${mobileRevisionId}`;
+  const requestedMobile=await server.api(mobileRevisionBase+'/figma-design/review','POST',{decision:'REQUEST_CHANGES',notes:'Revise this screen',screenIds:['SCR-001'],projectVersion:11,manifestDigest});assert.equal(requestedMobile.status,200);
+  const switched=await server.api(mobileRevisionBase+'/figma-design','POST',{platform:'mobile',revisionNotes:'Adapt design for mobile app',channelId:'mobile-revision-channel',fileIdentityConfirmed:true});assert.equal(switched.status,202,JSON.stringify(switched.data));assert.equal(switched.data.figmaDesign.platform,'mobile');assert.equal(switched.data.figmaDesign.screenIds,undefined);assert.equal(switched.data.figmaDesign.approved,null);
+  const switchedJob=await server.api(mobileRevisionBase+'/workflow/jobs/'+switched.data.jobId);assert.equal(switchedJob.data.options.platform,'mobile');assert.equal(switchedJob.data.options.screenIds,undefined);
   assert.equal(queued.data.figmaDesign.draft,null);assert.equal(queued.data.figmaDesign.fileConfirmation.documentKey,'fixture-file');assert.equal(JSON.stringify(queued.data).includes('fresh-private-channel'),false);
   await server.api('/api/figma/relay/stop','POST',{});
  }finally{await server?.stop();await rm(dir,{recursive:true,force:true})}

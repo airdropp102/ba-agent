@@ -65,7 +65,8 @@ export function buildFigmaHandoff(project,{platform='web'}={}) {
     platform,
     // Changing reviewed requirements invalidates every previously verified design
     // fingerprint even if the visual screen outline stayed superficially unchanged.
-    designSourceDigest:fingerprint(JSON.stringify({business:canonical.business,requirements:canonical.requirements})),
+    designSourceDigest:fingerprint(JSON.stringify({business:canonical.business,requirements:canonical.requirements,...(project.designDirection?{designDirection:project.designDirection.digest}:{})})),
+    ...(project.designDirection?{designDirection:project.designDirection}:{}),
     designSystem:{provider:'nextlevelbuilder/ui-ux-pro-max-skill',mode:'recommend-from-project-context',
       guidance:'Derive a coherent accessible design system from the installed UI UX Pro Max skill; do not use assumed business requirements.'},
     figma:{provider:'grab/cursor-talk-to-figma-mcp',transport:'MCP via Codex CLI',document:'CURRENT_OPEN_FIGMA_FILE',

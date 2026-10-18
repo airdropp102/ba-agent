@@ -166,3 +166,18 @@ const fs=require('fs'),a=process.argv.slice(2);process.stdin.resume();process.st
   assert.equal(value.payload.length,2_100_000);
  }finally{await rm(tmp,{recursive:true,force:true});}
 });
+
+test('Codex attaches images with argv only inside the isolated pack and rejects external references',async()=>{
+ const {readFile,mkdir,symlink}=await import('node:fs/promises');
+ const dir=await mkdtemp(path.join(os.tmpdir(),'ba-image-argv-'));
+ try{
+  const pack=path.join(dir,'pack');await mkdir(pack);const image=path.join(pack,'reference.png'),argsFile=path.join(dir,'args.json'),bin=path.join(dir,'codex');await writeFile(image,'fixture');
+  await writeFile(bin,`#!/usr/bin/env node
+const fs=require('fs'),args=process.argv.slice(2);fs.writeFileSync(${JSON.stringify(argsFile)},JSON.stringify(args));process.stdin.resume();process.stdin.on('end',()=>fs.writeFileSync(args[args.indexOf('--output-last-message')+1],JSON.stringify({screens:[]})));
+`,{mode:0o700});
+  await runCodexStructured('Synthetic reference fixture',schema,{bin,workingDirectory:pack,imagePaths:[image]});const args=JSON.parse(await readFile(argsFile,'utf8'));assert.equal(args[args.indexOf('--image')+1],await (await import('node:fs/promises')).realpath(image));
+  const outside=path.join(dir,'outside.png');await writeFile(outside,'fixture');await symlink(outside,path.join(pack,'escape.png'));
+  await assert.rejects(runCodexStructured('Synthetic fixture',schema,{bin,workingDirectory:pack,imagePaths:[outside]}),/inside/);
+  await assert.rejects(runCodexStructured('Synthetic fixture',schema,{bin,workingDirectory:pack,imagePaths:[path.join(pack,'escape.png')]}),/inside/);
+ }finally{await rm(dir,{recursive:true,force:true})}
+});

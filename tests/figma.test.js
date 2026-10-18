@@ -261,3 +261,25 @@ test('empty validated design report fails with a specific safe code and never ex
  },previewExporter:async()=>{exports++;}}),e=>e.code==='NO_VERIFIED_SCREENS'&&!e.message.includes('PRIVATE_PROVIDER_TEXT'));
  assert.equal(calls,2);assert.equal(exports,0);
 });
+
+test('selected-screen revision creates only selected frames and preserves every other registered node',async()=>{
+ const {buildPublishPlan,acceptVerifiedFigmaReport}=await import('../src/figma-registry.js');
+ const p=fixture(),pack=buildFigmaHandoff(p,{platform:'mobile'}),base=buildPublishPlan(pack.manifest);
+ const registry=acceptVerifiedFigmaReport(base,{documentKey:'fixture-file',screens:base.screens.map((s,i)=>({screenId:s.screenId,nodeId:`5:${i+1}`,verified:true}))},{documentKey:'fixture-file'}).registry;
+ let calls=0;const selected=base.screens[1].screenId;
+ const result=await publishFigmaDesign({project:p,designPack:pack,documentKey:'fixture-file',channelId:'fixture-channel',registry,revisionNotes:'Increase selected screen button size',screenIds:[selected],runner:async(prompt)=>{
+  if(++calls===1)return {connected:true,documentKey:'fixture-file',failureCode:''};
+  const actions=JSON.parse(prompt.split('plan actions marked create: ')[1].split('. For each new frame')[0]);
+  assert.deepEqual(actions.map(s=>s.screenId),[selected]);
+  return {documentKey:'fixture-file',screens:[{screenId:selected,nodeId:'8:1',verified:true}],notes:'Only selected frame was created'};
+ },previewExporter:async({screenId})=>({screenId,contentType:'image/jpeg',base64:'/9j/4AIA/9k='})});
+ assert.equal(calls,2);assert.equal(result.completed,1);assert.equal(result.skipped,base.screens.length-1);
+ assert.equal(result.screens.find(s=>s.screenId===selected).nodeId,'8:1');
+ for(const s of base.screens.filter(s=>s.screenId!==selected))assert.equal(result.registry.screens[s.screenId].nodeId,registry.screens[s.screenId].nodeId);
+ assert.equal(registry.screens[selected].nodeId,'5:2');
+ const wrong=structuredClone(registry);wrong.screens[base.screens[0].screenId].sha256='0'.repeat(64);
+ for(const bad of [null,wrong])await assert.rejects(publishFigmaDesign({project:p,designPack:pack,documentKey:'fixture-file',channelId:'fixture-channel',registry:bad,revisionNotes:'Same change',screenIds:[selected],runner:()=>{throw Error('must not call provider');}}),/Unselected/);
+ const {figmaRegistryDirectory}=await import('../src/project-workspaces.js');
+ assert.notEqual(figmaRegistryDirectory('/tmp',p.id,'web'),figmaRegistryDirectory('/tmp',p.id,'mobile'));
+ assert.ok(pack.manifest.screens.every(s=>s.viewport.width===390));
+});

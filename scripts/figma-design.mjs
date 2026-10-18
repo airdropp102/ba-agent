@@ -46,11 +46,12 @@ try{
   const workspaces=new ProjectWorkspaces(store);
   await workspaces.migrateLegacy(id);
   const project=store.get(id);
+  if(project.designDirection&&has('--publish'))throw new Error('Projects with a Design Brief must use Prototype to draw and review a sample with explicit visual input consent. Offline pack export remains available.');
   if(project.id!==id)throw new Error('Project ID mismatch');
   const handoff=buildFigmaHandoff(project,{platform});
-  const registryDir=figmaRegistryDirectory(dataDir,id);
+  const registryDir=figmaRegistryDirectory(dataDir,id,platform);
   const registryFile=figmaFile?path.join(registryDir,`${figmaFile}.json`):null;
-  const legacyRegistry=figmaFile?path.join(dataDir,'.figma-registry',id,`${figmaFile}.json`):null;
+  const legacyRegistry=figmaFile&&platform==='web'?path.join(dataDir,'.figma-registry',id,`${figmaFile}.json`):null;
   const sourceRegistry=registryFile&&existsSync(registryFile)?registryFile:legacyRegistry&&existsSync(legacyRegistry)?legacyRegistry:null;
   const registry=sourceRegistry?JSON.parse(await fs.readFile(sourceRegistry,'utf8')):null;
   if(registry&&(registry.documentKey!==figmaFile||registry.projectId!==id))throw new Error('Figma registry file/project mismatch');
@@ -67,6 +68,7 @@ try{
     fs.writeFile(path.join(runDir,'FIGMA_INSTRUCTIONS.md'),handoff.instructions,{mode:0o600}),
     fs.writeFile(path.join(runDir,'figma-publish-plan.json'),JSON.stringify(plan,null,2),{mode:0o600}),
   ]);
+  if(project.designDirection)await fs.writeFile(path.join(runDir,'DESIGN_BRIEF.json'),JSON.stringify(project.designDirection,null,2),{mode:0o600});
   console.log('Figma Design Pack:',runDir);
   if(!has('--publish')){
     console.log('Offline handoff generated. To draw in Figma, connect the Figma plugin and rerun with --publish --channel YOUR_CHANNEL.');

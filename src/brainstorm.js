@@ -16,8 +16,19 @@ export function demoBrainstorm(title,brief){
     assumptions:['Không suy luận thêm chức năng từ nội dung đầu vào.'],
     risks:[brief.length<200?'Brief ngắn; cần bổ sung phỏng vấn và nguồn chứng cứ.':'Chưa có xác nhận độc lập về tính đầy đủ của brief.']};
 }
+const LISTS=['opportunities','stakeholderQuestions','assumptions','risks'];
+export const BRAINSTORM_LIMITS=Object.freeze({summary:4000,items:20,itemLength:2000});
 export function assessBrainstorm(value){
-  const lists=['opportunities','stakeholderQuestions','assumptions','risks'];
-  if(!value||typeof value.summary!=='string'||!value.summary.trim()||lists.some(x=>!Array.isArray(value[x])))throw new Error('Invalid brainstorming output');
-  return {...value,status:'DRAFT_HYPOTHESES',customerApproved:false};
+  const {summary:maxSummary,items:maxItems,itemLength:maxLength}=BRAINSTORM_LIMITS;
+  if(!value||typeof value.summary!=='string'||!value.summary.trim()||value.summary.length>maxSummary)throw new Error('Invalid brainstorming output');
+  const out={summary:value.summary.trim()};
+  for(const key of LISTS){
+    const list=value[key];
+    if(!Array.isArray(list)||list.some(x=>typeof x!=='string'))throw new Error('Invalid brainstorming output');
+    const items=list.map(x=>x.trim()).filter(Boolean);
+    if(items.length>maxItems||items.some(x=>x.length>maxLength))throw new Error('Invalid brainstorming output');
+    out[key]=items;
+  }
+  // Only known fields are kept; anything else the model added is dropped.
+  return {...out,status:'DRAFT_HYPOTHESES',customerApproved:false};
 }

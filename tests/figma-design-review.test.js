@@ -76,3 +76,35 @@ test('approved design can be reopened for changes while preserving approval hist
  assert.equal(next.figmaDesign.state,'DESIGNING');assert.equal(next.figmaDesign.draft,null);
  assert.deepEqual(next.figmaDesign.approved,approved.figmaDesign.approved);
 });
+
+test('mobile platform is explicit and cannot inherit web approval or change the BA workflow platform',()=>{
+ const original=project();original.workflow.platform='web';
+ const draft=completeFigmaDesign(beginFigmaDesign(original,{documentKey:'abc-123',channelId:'channel',jobId:'job-1'}),{runId:'job-1',projectVersion:7,manifestDigest:digest,screens:reports(),previewFiles:previews()});
+ const approved=reviewFigmaDesign(draft,{decision:'APPROVE',reviewerId:'ba-reviewer',projectVersion:7,manifestDigest:digest});
+ const mobile=beginFigmaDesign(approved,{documentKey:'abc-123',channelId:'channel',jobId:'job-mobile',platform:'mobile'});
+ assert.equal(mobile.figmaDesign.platform,'mobile');assert.equal(mobile.workflow.platform,'web');assert.equal(mobile.figmaDesign.approved,null);
+ assert.throws(()=>beginFigmaDesign(original,{documentKey:'abc-123',channelId:'channel',jobId:'bad-platform',platform:'tablet'}),/platform/i);
+});
+
+test('screen revision records exact IDs and rejects invalid scope, platform or file changes',()=>{
+ const draft=completeFigmaDesign(beginFigmaDesign(project(),{documentKey:'abc-123',channelId:'channel',jobId:'job-1'}),{runId:'job-1',projectVersion:7,manifestDigest:digest,screens:reports(),previewFiles:previews()});
+ const input={decision:'REQUEST_CHANGES',notes:'Increase heading contrast',reviewerId:'ba-reviewer',projectVersion:7,manifestDigest:digest};
+ for(const screenIds of [[],['SCR-999'],['SCR-001','SCR-001'],'SCR-001'])assert.throws(()=>reviewFigmaDesign(draft,{...input,screenIds}),/screen/i);
+ const requested=reviewFigmaDesign(draft,{...input,screenIds:['SCR-001']});
+ assert.deepEqual(requested.figmaDesign.revisionScreenIds,['SCR-001']);assert.deepEqual(requested.figmaDesign.history.at(-1).screenIds,['SCR-001']);
+ const args={documentKey:'abc-123',channelId:'channel',jobId:'job-2',platform:'web',screenIds:['SCR-001']};
+ assert.deepEqual(beginFigmaDesign(requested,args).figmaDesign.screenIds,['SCR-001']);
+ assert.throws(()=>beginFigmaDesign(requested,{...args,platform:'mobile'}),/platform/i);
+ assert.throws(()=>beginFigmaDesign(requested,{...args,documentKey:'other-file'}),/file/i);
+ assert.throws(()=>beginFigmaDesign(requested,{...args,screenIds:['SCR-002']}),/screen/i);
+});
+
+test('full revision after a selected revision clears prior scope; failed selected retry preserves it',()=>{
+ const draft=completeFigmaDesign(beginFigmaDesign(project(),{documentKey:'abc-123',channelId:'channel',jobId:'job-1'}),{runId:'job-1',projectVersion:7,manifestDigest:digest,screens:reports(),previewFiles:previews()});
+ draft.figmaDesign.screenIds=['SCR-001'];
+ const input={decision:'REQUEST_CHANGES',notes:'Revise every screen',reviewerId:'ba-reviewer',projectVersion:7,manifestDigest:digest};
+ const all=reviewFigmaDesign(draft,input);assert.equal(all.figmaDesign.screenIds,undefined);assert.equal(all.figmaDesign.revisionScreenIds,undefined);
+ const one=reviewFigmaDesign(draft,{...input,screenIds:['SCR-001']});
+ const pending=beginFigmaDesign(one,{documentKey:'abc-123',channelId:'channel',jobId:'job-2',screenIds:['SCR-001']});pending.figmaDesign.state='FAILED';
+ const retry=beginFigmaDesign(pending,{documentKey:'abc-123',channelId:'new-channel',jobId:'job-3',screenIds:['SCR-001']});assert.deepEqual(retry.figmaDesign.screenIds,['SCR-001']);
+});

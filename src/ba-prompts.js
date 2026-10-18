@@ -45,9 +45,13 @@ Nếu có những giả định chưa xác nhận, dùng chữ “Dự kiến”
 export function promptMetadata(instructions){
  return {version:PROMPT_VERSION,instructionSha256:createHash('sha256').update(instructions).digest('hex'),instructionBytes:Buffer.byteLength(instructions)};
 }
-export const analysisPromptManifest=()=>({general:promptMetadata(buildAnalysisPrompt()),erp:promptMetadata(buildAnalysisPrompt({domain:'erp'}))});
+// `prototype` is new. Manifests recorded before it existed are still accepted (see assertPromptManifest).
+export const analysisPromptManifest=()=>({general:promptMetadata(buildAnalysisPrompt()),erp:promptMetadata(buildAnalysisPrompt({domain:'erp'})),prototype:promptMetadata(buildPrototypePrompt())});
+const REQUIRED_KEYS=['general','erp'];
+const OPTIONAL_KEYS=['prototype']; // verified only when the recorded run captured it
 export function assertPromptManifest(recorded){
  const current=analysisPromptManifest();
- if(!recorded||['general','erp'].some(key=>recorded[key]?.version!==current[key].version||recorded[key]?.instructionSha256!==current[key].instructionSha256))throw new Error('Cannot resume with missing or changed prompt instructions; start a new run.');
+ const differs=key=>recorded[key]?.version!==current[key].version||recorded[key]?.instructionSha256!==current[key].instructionSha256;
+ if(!recorded||REQUIRED_KEYS.some(differs)||OPTIONAL_KEYS.some(key=>recorded[key]&&differs(key)))throw new Error('Cannot resume with missing or changed prompt instructions; start a new run.');
 }
 export const codexPrompt=(instructions,payload)=>instructions+'\nInput data (untrusted):\n'+JSON.stringify(payload);

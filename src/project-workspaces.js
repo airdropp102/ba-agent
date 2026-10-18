@@ -17,13 +17,16 @@ const digest=b=>createHash('sha256').update(b).digest('hex');
 const err=(message,status=400)=>Object.assign(new Error(message),{status});
 export const requireProjectId=id=>{if(!uuid.test(id||''))throw err('Invalid project UUID');return id.toLowerCase()};
 export const projectDirectory=(dataDir,id)=>path.join(path.resolve(dataDir),'projects',requireProjectId(id));
-export const figmaRegistryDirectory=(dataDir,id)=>path.join(projectDirectory(dataDir,id),'04-figma','registry');
+export const figmaRegistryDirectory=(dataDir,id,platform='web')=>{
+ if(!['web','mobile'].includes(platform))throw new Error('Invalid Figma registry platform');
+ return path.join(projectDirectory(dataDir,id),'04-figma','registry',...(platform==='mobile'?['mobile']:[]));
+};
 export const workflowArtifactDirectory=(dataDir,id,runId)=>{
   if(!uuid.test(runId||''))throw err('Invalid workflow run UUID');
   return path.join(projectDirectory(dataDir,id),'05-workflow','runs',runId);
 };
 
-async function safeDirectory(directory,root){
+export async function safeDirectory(directory,root){
   // Reject user-inserted symlinks for all directories below DATA_DIR.
   const relative=path.relative(path.resolve(root),directory);
   if(relative.startsWith('..')||path.isAbsolute(relative))throw err('Path escapes data directory');
@@ -67,6 +70,11 @@ export class ProjectWorkspaces{
     const metadata={projectId:p.id,title:p.title,version:p.version,status:p.status,updatedAt:p.updatedAt,
       workflow:{runId:p.workflow?.runId||null,stage:p.workflow?.stage||'NOT_STARTED',state:p.workflow?.state||'NOT_STARTED',checkpoints:p.workflow?.checkpoints||[]},
       review:{approved:!!p.review?.approved,reviewedAt:p.review?.reviewedAt||null},clarifications:{requirementsRefreshPending:!!p.requirementsRefreshPending,proposals:(p.clarificationRecommendations||[]).length,decisions:(p.clarificationDecisions||[]).length,unresolved:(p.analysis?.clarificationQuestions||[]).filter(q=>q.status!=='resolved').length},sourceOfTruth:'shared SQLite / projects table',projection:true};
+    const assetTable=this.store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_design_assets'").get();
+    const assets=assetTable?this.store.db.prepare('SELECT metadata FROM project_design_assets WHERE project_id=?').all(p.id).map(row=>JSON.parse(row.metadata)):[];
+    await put('04-figma','DESIGN_ASSETS.json',JSON.stringify(assets,null,2)+'\n');
+    await put('04-figma','DESIGN_BRIEF.json',JSON.stringify(p.designDirection||null,null,2)+'\n');
+    await put('06-reviews','DESIGN_SAMPLE.json',JSON.stringify(p.designSample||null,null,2)+'\n');
     await put('00-admin','TECH_STACK.json',JSON.stringify(p.techStack||null,null,2)+'\n');
     await put('00-admin','ERP_SOLUTION_PROFILE.json',JSON.stringify(p.solutionProfile||null,null,2)+'\n');
     await put('02-requirements','ERP_FIT_GAP.json',JSON.stringify(erpFitGapReport(p),null,2)+'\n');

@@ -1,3 +1,4 @@
+import {designRunMode,sampleBinding} from './design-direction.js';
 import {createHash} from 'node:crypto';
 const FILE_KEY=/^[\w-]{3,128}$/;
 const CHANNEL=/^[A-Za-z0-9_-]{1,128}$/;
@@ -44,18 +45,36 @@ function expectedScreens(project){
  });
 }
 
-export function beginFigmaDesign(project,{documentKey,channelId,jobId}={}){
+function selectedScreens(screenIds,known){
+ if(!Array.isArray(screenIds)||!screenIds.length||screenIds.length>known.length||new Set(screenIds).size!==screenIds.length||screenIds.some(id=>!known.includes(id)))fail('Invalid selected screen IDs');
+ return [...screenIds];
+}
+
+export function beginFigmaDesign(project,{documentKey,channelId,jobId,platform,screenIds,mode}={}){
  if(!project||!Number.isSafeInteger(project.version)||project.version<1)fail('Project version required for Figma design');
  if(project.review?.approved!==true)fail('BA Review is required before Figma design');
  if(!FILE_KEY.test(documentKey||''))fail('Invalid Figma document key');
  if(!CHANNEL.test(channelId||''))fail('Invalid Figma channel ID');
  if(typeof jobId!=='string'||!jobId.trim()||jobId.length>160)fail('Figma design job ID required');
- expectedScreens(project);
+ const planned=expectedScreens(project).map(s=>s.screenId);
+ const previous=project.figmaDesign||{},previousPlatform=previous.platform||project.workflow?.platform||'web';
+ platform=platform??previousPlatform;
+ if(!['web','mobile'].includes(platform))fail('Invalid Figma platform');
+ mode=designRunMode(project,{mode,platform,documentKey});
+ if(mode==='sample')screenIds=undefined;
+ if(screenIds!==undefined){
+  screenIds=selectedScreens(screenIds,planned);
+  const requested=previous.revisionScreenIds||(previous.state==='FAILED'?previous.screenIds:null);
+  if(!['REVISION_REQUESTED','FAILED'].includes(previous.state)||!requested||JSON.stringify([...screenIds].sort())!==JSON.stringify([...requested].sort()))fail('Selected screen IDs must match the revision request');
+  if(platform!==previousPlatform)fail('Selected screen revision cannot change platform');
+  if(documentKey!==previous.documentKey)fail('Selected screen revision cannot change file');
+ }
  const next=clone(project),prior=next.figmaDesign||{};
+ if(mode==='sample')next.designSample=null;
  next.figmaDesign={
   state:'DESIGNING',runId:jobId,projectVersion:project.version,workflowRunId:project.workflow?.runId||null,
-  documentKey,channelId,revision:(prior.revision||0)+1,history:Array.isArray(prior.history)?prior.history:[],
-  startedAt:new Date().toISOString(),draft:null,approved:prior.approved||null
+  documentKey,channelId,platform,mode,...(mode==='full'&&platform===previousPlatform&&documentKey===prior.documentKey?{retainedAssets:clone(prior.assets||[]),retainedAssetEvidence:clone(prior.assetEvidence||[])}:{}),...(screenIds?{screenIds}:{}),revision:(prior.revision||0)+1,history:Array.isArray(prior.history)?prior.history:[],
+  startedAt:new Date().toISOString(),draft:null,approved:mode!=='sample'&&platform===previousPlatform&&documentKey===prior.documentKey?prior.approved||null:null
  };
  return next;
 }
@@ -76,7 +95,7 @@ export function completeFigmaDesign(project,{runId,projectVersion,manifestDigest
  if((project.workflow?.runId||null)!==current.workflowRunId)fail('Stale Figma workflow run');
  if(!SHA.test(manifestDigest||''))fail('Invalid Figma manifest digest');
  if(!Array.isArray(screens)||!Array.isArray(previewFiles))fail('Figma screens and previews are required');
- const expected=expectedScreens(project),expectedById=new Map(expected.map(s=>[s.screenId,s])),seen=new Set(),nodes=new Set();
+ const expected=expectedScreens(project).filter(s=>current.mode!=='sample'||s.screenId===project.designDirection?.sampleScreenId),expectedById=new Map(expected.map(s=>[s.screenId,s])),seen=new Set(),nodes=new Set();
  const fileById=new Map();
  for(const file of previewFiles){if(!file||typeof file.screenId!=='string'||fileById.has(file.screenId))fail('Duplicate or invalid Figma preview');fileById.set(file.screenId,file);}
  if(screens.length!==expected.length||fileById.size!==expected.length)fail('Incomplete Figma screen or preview coverage');
@@ -90,27 +109,38 @@ export function completeFigmaDesign(project,{runId,projectVersion,manifestDigest
   return {screenId:screen.screenId,nodeId:screen.nodeId,verified:true,requirementIds:[...planned.requirementIds],preview:normalizePreview(fileById.get(screen.screenId),screen.screenId)};
  });
  const next=clone(project);
- next.figmaDesign={...next.figmaDesign,state:'WAITING_FOR_REVIEW',manifestDigest:manifestDigest.toLowerCase(),screens:normalized,
+ next.figmaDesign={...next.figmaDesign,state:current.mode==='sample'?'WAITING_SAMPLE_REVIEW':'WAITING_FOR_REVIEW',manifestDigest:manifestDigest.toLowerCase(),screens:normalized,
   draft:{projectVersion,manifestDigest:manifestDigest.toLowerCase(),screenIds:normalized.map(s=>s.screenId)},completedAt:new Date().toISOString()};
  return next;
 }
 
-export function reviewFigmaDesign(project,{decision,notes='',reviewerId,projectVersion,manifestDigest}={}){
+export function reviewFigmaDesign(project,{decision,notes='',reviewerId,projectVersion,manifestDigest,screenIds}={}){
  const current=project?.figmaDesign;
- const reopenApproved=current?.state==='APPROVED'&&decision==='REQUEST_CHANGES';
- if(!current||(!reopenApproved&&current.state!=='WAITING_FOR_REVIEW')||!current.draft)fail('No Figma design draft is waiting for review');
+ const reopenApproved=['APPROVED','SAMPLE_APPROVED'].includes(current?.state)&&decision==='REQUEST_CHANGES';
+ if(!current||(!reopenApproved&&!['WAITING_FOR_REVIEW','WAITING_SAMPLE_REVIEW'].includes(current.state))||!current.draft)fail('No Figma design draft is waiting for review');
  if(!['APPROVE','REQUEST_CHANGES'].includes(decision))fail('Invalid Figma design review decision');
  if(typeof reviewerId!=='string'||!reviewerId.trim()||reviewerId.length>160)fail('Figma design reviewer identity required');
  if(typeof notes!=='string'||notes.length>3000)fail('Invalid Figma design review notes');
  if(decision==='REQUEST_CHANGES'&&!notes.trim())fail('Revision feedback is required');
- if(reopenApproved&&(current.approved?.projectVersion!==project.version||current.approved?.manifestDigest!==manifestDigest))fail('Stale approved Figma design');
+ if(reopenApproved&&current.mode!=='sample'&&(current.approved?.projectVersion!==project.version||current.approved?.manifestDigest!==manifestDigest))fail('Stale approved Figma design');
  if(projectVersion!==project.version||projectVersion!==current.draft.projectVersion)fail('Stale Figma project version');
  if(manifestDigest!==current.manifestDigest||manifestDigest!==current.draft.manifestDigest)fail('Figma manifest mismatch');
- const next=clone(project),record={decision,notes:notes.trim(),reviewerId:reviewerId.trim(),projectVersion,manifestDigest,reviewedAt:new Date().toISOString(),screenIds:[...current.draft.screenIds]};
+ if(screenIds!==undefined){
+  if(decision!=='REQUEST_CHANGES')fail('Selected screen IDs are only valid for revision requests');
+  screenIds=selectedScreens(screenIds,current.draft.screenIds);
+ }
+ const next=clone(project),record={decision,mode:current.mode||'full',notes:notes.trim(),reviewerId:reviewerId.trim(),projectVersion,manifestDigest,platform:current.platform||project.workflow?.platform||'web',reviewedAt:new Date().toISOString(),screenIds:screenIds||[...current.draft.screenIds]};
  const history=[...(current.history||[]),record];
- next.figmaDesign={...next.figmaDesign,state:decision==='APPROVE'?'APPROVED':'REVISION_REQUESTED',history};
+ next.figmaDesign={...next.figmaDesign,state:decision==='APPROVE'?(current.mode==='sample'?'SAMPLE_APPROVED':'APPROVED'):'REVISION_REQUESTED',history};
+ if(decision==='REQUEST_CHANGES'){
+  if(current.mode==='sample')next.designSample=null;
+  delete next.figmaDesign.screenIds;
+  if(screenIds)next.figmaDesign.revisionScreenIds=screenIds;
+  else delete next.figmaDesign.revisionScreenIds;
+ }
  if(decision==='APPROVE'){
-  next.figmaDesign.approved={projectVersion,manifestDigest,screens:clone(current.screens),review:record};
+  if(current.mode==='sample'){const screen=current.screens[0];next.designSample={state:'APPROVED',binding:sampleBinding(project,{platform:current.platform,documentKey:current.documentKey}),screenId:screen.screenId,nodeId:screen.nodeId,preview:clone(screen.preview),assets:clone(current.assets||[]),review:record};}
+  else {next.figmaDesign.approved={projectVersion,manifestDigest,screens:clone(current.screens),review:record};if(project.designDirection&&next.designSample?.binding===sampleBinding(project,{platform:current.platform,documentKey:current.documentKey})){const sample=current.screens.find(s=>s.screenId===project.designDirection.sampleScreenId);if(sample){const assets=(current.assets||[]).filter(a=>a.screenIds?.includes(sample.screenId));next.designSample={...next.designSample,nodeId:sample.nodeId,preview:clone(sample.preview),...(assets.length?{assets:clone(assets)}:{})};}}}
   delete next.figmaDesign.channelId;
  }
  return next;

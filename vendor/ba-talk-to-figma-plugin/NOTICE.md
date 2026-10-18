@@ -1,0 +1,1 @@
+Derived from grab/cursor-talk-to-figma-mcp at commit ddd90f3a6d454ea0b2fc29f1b084f50fd062b880. Upstream MIT license included. BA Studio changes: asset import/read-back commands; WebP conversion; remove analytics and limit network domains to the local relay.
