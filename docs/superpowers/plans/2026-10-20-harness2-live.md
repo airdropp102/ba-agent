@@ -1,0 +1,24 @@
+# Harness² Codex live benchmark implementation plan
+
+**Goal:** Run the approved A/B/C method with actual Codex calls, gated corpus admission and a durable invocation cap.
+
+**Spec:** `docs/HARNESS2_BENCHMARK.md` sections 4/7; user requested live implementation and chose Codex on 2026-10-20. User additionally authorized a synthetic pilot capped at 24 Codex invocations. Synthetic data remains ineligible for production acceptance.
+
+**Architecture:** Pure JSON Codex subprocesses receive only task-scoped input and bounded catalog policies. Harness² still owns recursion and adoption. A private run ledger reserves each invocation before transmission; no automatic replay. Train only C, then compare A/B/C on held-out test; C's library is frozen for test.
+
+**Constraints:** Node >=22.13 / Python 3.12; pinned Harness² revision; unchanged production providers, validators and acceptance gates; no model tools/MCP/web/shell, no user config or persistent Codex session; private credential copy removed after each call. Missing usage or price is UNKNOWN. No fabricated real data, BA judgments, approvals or Figma evidence.
+
+1. Corpus/admission: add `scripts/harness2/live-corpus.mjs` and contract tests. Write an exclusive private corpus directory containing two original synthetic cases and a 20-case unapproved real-corpus template. Reuse `validateCorpus` unchanged for reviewed mode, reject synthetic in reviewed mode, reject overlap of project groups. Preflight computes a call plan without network or auth checks.
+2. Codex transport: add `scripts/harness2/codex-json.mjs` and tests for exact argv/environment, secret-free usage metadata, schema rejection, timeout cleanup, invocation reservations and fail-closed quota. Use installed CLI `exec --json --ephemeral --ignore-user-config --ignore-rules --sandbox read-only`, explicit model, disabled tool features and fresh private HOME/CODEX_HOME with login credentials only. Read JSONL event usage but retain no raw transcript.
+3. Runtime: add `scripts/harness2/live-runtime.mjs` for source-whitelisted solving and structured propose/select/reflect operations. Candidate guidance remains a fixed analyst catalog; reflection persists only IDs, not customer text. Existing BA policy, schema, evidence/ID handling and canonical export apply to actual solver output.
+4. Harness driver: add `scripts/harness2/live.py` using existing `BAAdapter`/`FrozenLibrary` interfaces plus an actual Codex-backed Proposer. Use k=1 sequential for the initial 23-call pilot: C train (8 calls), A test (1), B test (7), C test (7, no model reflection in frozen phase). Abort on failure/unknown in-flight usage; do not silently retry. Persist partial status, manifests, selected predictions and pending independent review packets.
+5. CLI: add `scripts/harness2-live.mjs` with `prepare`, `preflight`, `run` and exclusive output namespaces; reviewed runs require existing admission plus explicit transmission permission. Synthetic smoke requires a separate explicit flag, never reports semantic/customer/production approval. Register npm commands and create corpus artifacts under ignored DATA_DIR engineering benchmark storage.
+6. Verify tests before any real call; execute the user-approved synthetic pilot with maxCalls=24, native Codex CLI and the BA wrapper's configured `gpt-6-sol` model. Record every failed/charged attempt and stop at the cap. Run required repository checks; preserve the known recommendation failure. Save a complete session checkpoint and handoff with real-corpus/human-review work still outstanding.
+
+## Execution evidence
+
+Implemented and executed inline. Generated a two-case synthetic corpus and an unapproved 20-case real-corpus template. The actual `gpt-6-sol` pilot completed 23 of the authorized maximum 24 CLI invocations with no errors; all four train/test arm records completed and transfer memory stayed frozen. Usage is CLI-reported; USD prices remain UNKNOWN. Exact pilot source is archived before post-run validation hardening.
+
+Added a separately tested human research scorer (`scripts/harness2-review.mjs`) for FR/NFR recall, unsupported ratio, reviewer agreement, paired deltas and exploratory group bootstrap intervals. It requires completed independent human reviews and never provides production/customer approval. Actual pilot reviews remain blank/PENDING and are rejected by scoring. Both generated corpora are rejected by the unchanged production preflight.
+
+The initial suite passed 249/250 Node tests; after adding custom-validation hardening the final suite includes 251 tests. The pre-existing recommendation validation failure is retained rather than hidden. Durable logs and latest session checkpoint record the final checks. Remaining work is real corpus collection/approval and genuine human review, not synthetic evidence fabrication.
