@@ -37,11 +37,43 @@ test('v3.6: document ID is bound to project, content hashed and immutable',()=>s
  assert.equal(store.verifyAudit(a.id).valid,true);
 }));
 
+test('initial document registry failure rolls back project and audit',()=>setup(async({dataDir,store,workspaces})=>{
+ const a=project('Atomic intake');a.sources=[{id:'SRC-001',type:'customer-brief',text:'Customer requests warranty tracking.'}];
+ store.db.exec("CREATE TRIGGER reject_intake BEFORE INSERT ON project_documents BEGIN SELECT RAISE(ABORT,'registry failure'); END");
+ await assert.rejects(()=>workspaces.createWithDocument(a,{category:'customer',filename:'brief.pdf',encoding:'base64',content:Buffer.from('%PDF-1.4\nsynthetic').toString('base64')},'SRC-001'),/registry failure/);
+ assert.equal(store.list().length,0);assert.equal(store.audit(a.id).length,0);
+ const {readdir}=await import('node:fs/promises');
+ assert.deepEqual(await readdir(r(dataDir,a.id,'01-customer-input/attachments')),[]);
+}));
+
+test('multiple initial documents roll back all staged bytes when the second insert fails',()=>setup(async({dataDir,store,workspaces})=>{
+ const a=project('Atomic multiple intake');a.sources=['SRC-001','SRC-002'].map(id=>({id,type:'customer-brief',text:'Customer requests warranty tracking.'}));
+ const make=filename=>({category:'customer',filename,encoding:'base64',content:Buffer.from('%PDF-1.4\nsynthetic').toString('base64')});
+ const entries=[{file:make('first.pdf'),sourceId:'SRC-001'},{file:make('second.pdf'),sourceId:'SRC-002'}];
+ store.db.exec("CREATE TRIGGER reject_second_intake BEFORE INSERT ON project_documents WHEN NEW.filename='second.pdf' BEGIN SELECT RAISE(ABORT,'second registry failure'); END");
+ await assert.rejects(()=>workspaces.createWithDocuments(a,entries),/second registry failure/);
+ assert.equal(store.list().length,0);assert.equal(store.audit(a.id).length,0);assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM project_documents').get().n,0);
+ const {readdir}=await import('node:fs/promises');assert.deepEqual(await readdir(r(dataDir,a.id,'01-customer-input/attachments')),[]);
+ await assert.rejects(()=>workspaces.createWithDocuments(a,[entries[0],{file:make('../bad.pdf'),sourceId:'SRC-002'}]),/Unsafe filename/);
+ assert.equal(store.list().length,0);assert.deepEqual(await readdir(r(dataDir,a.id,'01-customer-input/attachments')),[]);
+}));
+
 test('v3.6: drift of evidence file is detected, never silently trusted',()=>setup(async({dataDir,store,workspaces})=>{
  const a=project('A');store.save(a);const evidence=await workspaces.addDocument(a.id,{category:'customer',filename:'meeting.md',content:'Minutes v1'});
  const list=store.db.prepare('SELECT relative_path FROM project_documents WHERE id=?').get(evidence.id);
  await writeFile(r(dataDir,a.id,list.relative_path),'tampered');
  await assert.rejects(()=>workspaces.readDocument(a.id,evidence.id),/checksum mismatch/);
+}));
+
+test('original filenames may contain punctuation or long Unicode without becoming filesystem paths',()=>setup(async({store,workspaces})=>{
+ const a=project('File names');store.save(a);
+ for(const filename of ['Yêu cầu (1) [final] & BRD.docx','Yêu cầu '.repeat(15)+'(cuối).docx']){
+  const original=Buffer.from('synthetic original');
+  const doc=await workspaces.addDocument(a.id,{category:'customer',filename,encoding:'base64',content:original.toString('base64')});
+  const read=await workspaces.readDocument(a.id,doc.id);assert.equal(read.filename,filename);assert.equal(read.content,original.toString('base64'));
+  const row=store.db.prepare('SELECT relative_path FROM project_documents WHERE id=?').get(doc.id);assert.equal(row.relative_path.split('/').at(-1),doc.id+'.docx');
+ }
+ for(const filename of ['../secret.docx','folder/brief.docx','folder\\brief.docx','bad\nname.pdf','bad\0name.pdf'])await assert.rejects(()=>workspaces.addDocument(a.id,{category:'customer',filename,encoding:'base64',content:Buffer.from('x').toString('base64')}),/Unsafe filename/);
 }));
 
 test('v3.6: BA session handoff and evidence are confined to project workspace',()=>setup(async({root,dataDir,store,workspaces,sessions})=>{
@@ -68,6 +100,23 @@ test('v3.6: symlinked project directories are refused',()=>setup(async({dataDir,
  const a=project('Unsafe');store.save(a);
  await mkdir(join(dataDir,'projects'),{recursive:true});await symlink(join(dataDir,'escape'),join(dataDir,'projects',a.id));
  await assert.rejects(()=>workspaces.exportProject(a),/physical directory/);
+}));
+
+test('new document projections are removed when analysis disappears; archived files stay immutable',()=>setup(async({dataDir,store,workspaces})=>{
+ const a=project('Document projections');a.analysis=(await import('../src/normalize.js')).normalizeAnalysis((await import('../src/demo.js')).demoAnalysis(a.title,sampleBrief),sampleBrief);store.save(a);await workspaces.exportProject(a);
+ const names=['URD.md','USE_CASES.md','USER_STORIES.md'];
+ for(const name of names)assert.match(await readFile(r(dataDir,a.id,'02-requirements/'+name),'utf8'),/DRAFT/);
+ const old=await readFile(r(dataDir,a.id,'09-archive/v000001/URD.md'),'utf8');a.version=2;a.analysis=null;store.save(a);await workspaces.exportProject(a);
+ for(const name of names)await assert.rejects(()=>stat(r(dataDir,a.id,'02-requirements/'+name)),/ENOENT/);
+ assert.equal(await readFile(r(dataDir,a.id,'09-archive/v000001/URD.md'),'utf8'),old);
+}));
+test('exporting new templates does not add files to an existing historical snapshot',()=>setup(async({dataDir,store,workspaces})=>{
+ const a=project('Legacy archive');a.analysis=(await import('../src/normalize.js')).normalizeAnalysis((await import('../src/demo.js')).demoAnalysis(a.title,sampleBrief),sampleBrief);store.save(a);
+ const historical=r(dataDir,a.id,'09-archive/v000001');await mkdir(historical,{recursive:true});await writeFile(join(historical,'state.json'),'legacy snapshot');await writeFile(join(historical,'BRD.md'),'Original historical BRD');
+ await workspaces.exportProject(a);
+ assert.equal(await readFile(join(historical,'BRD.md'),'utf8'),'Original historical BRD');
+ for(const name of ['URD.md','USE_CASES.md','USER_STORIES.md'])await assert.rejects(()=>stat(join(historical,name)),/ENOENT/);
+ assert.match(await readFile(r(dataDir,a.id,'02-requirements/URD.md'),'utf8'),/StRS/);
 }));
 
 test('v3.6: project tasks reject unknown project and BA task without project',()=>setup(async({sessions})=>{

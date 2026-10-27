@@ -5,6 +5,7 @@ import {normalizeDesignDirection,saveDesignDirection,referenceBytes} from './des
 import {currentERPTarget,currentERPDesign,confirmERPTarget,erpDesignInput,acceptERPDesign,reviewERPDesign,invalidateERPDesign,renderERPDesign} from './erp-solution-design.js';
 import {codexTimeoutMs,runCodexStructured} from './codex-provider.js';
 import {withExecutionContext,logExecution} from './execution-log.js';
+import {extractRequirementFile,extractRequirementFiles} from './requirement-file.js';
 import {applyClarificationBatch} from './clarification-batch.js';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -23,7 +24,8 @@ import {timingSafeEqual,createHash} from 'node:crypto';
 import {normalizeAnalysis,normalizePrototype} from './normalize.js';
 import {prepareBAAnalysis} from './ba-quality.js';
 import {buildCanonicalPackage} from './ba-canonical.js';
-import {renderBRD,renderSRS,renderPRD,renderQuestionnaire} from './docs.js';
+import {renderBRD,renderSRS,renderPRD,renderQuestionnaire,DOCUMENT_RENDERERS} from './docs.js';
+import {getDocumentTemplate,DOCUMENT_TEMPLATES} from './standard-documents.js';
 import {renderStandalone} from './export.js';
 import {buildFigmaHandoff} from './figma-handoff.js';
 import {buildPublishPlan} from './figma-registry.js';
@@ -135,7 +137,7 @@ async function newAnalysis(p,sourceText) {
 const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data,(key,value)=>['channelId','revisionNotes'].includes(key)?undefined:value))};
 const error=(res,msg,status=400)=>json(res,{error:msg},status);
 const readBody=async (req,limit=500_000)=>{let size=0;const buffers=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw Object.assign(new Error(`Dữ liệu đầu vào vượt giới hạn ${Math.round(limit/1000)} KB`),{status:413});buffers.push(chunk)}try{return JSON.parse(Buffer.concat(buffers).toString('utf8'))}catch{throw Object.assign(new Error('JSON không hợp lệ'),{status:400})}};
-const docsFilename={prd:'PRD.md',brd:'BRD.md',srs:'SRS.md',prototype:'prototype.html',json:'analysis.json',canonical:'canonical.json',questions:'clarification-questions.md',figma:'FIGMA_INSTRUCTIONS.md','figma-manifest':'figma-manifest.json'};
+const docsFilename={prd:'PRD.md',brd:'BRD.md',srs:'SRS.md',urd:'URD.md','use-cases':'USE_CASES.md','user-stories':'USER_STORIES.md',prototype:'prototype.html',json:'analysis.json',canonical:'canonical.json',questions:'clarification-questions.md',figma:'FIGMA_INSTRUCTIONS.md','figma-manifest':'figma-manifest.json'};
 const sendDownload=(res,filename,content,type)=>{res.writeHead(200,{'Content-Type':type,'Content-Disposition':`attachment; filename="${filename}"`,'X-Content-Type-Options':'nosniff'});res.end(content)};
 
 async function createPrototype(p){
@@ -301,13 +303,38 @@ async function handler(req,res){
     if(req.method==='GET'&&url.pathname==='/api/metrics')return json(res,{...store.metrics(),ai:store.aiMetrics()});
     if(req.method==='GET'&&url.pathname==='/api/projects')return json(res,store.list());
     if(req.method==='GET'&&url.pathname==='/api/erp/catalog')return json(res,{platforms:ERP_CATALOG,processes:ERP_PROCESSES});
+    if(req.method==='GET'&&segments[0]==='api'&&segments[1]==='document-templates'&&segments.length===3){
+      const kind=segments[2].replace(/\.md$/,'');
+      const content=getDocumentTemplate(kind);
+      return sendDownload(res,DOCUMENT_TEMPLATES[kind].filename,content,'text/markdown; charset=utf-8');
+    }
+    if(req.method==='POST'&&url.pathname==='/api/requirements/preview'){
+      const body=await readBody(req,7_100_000);
+      return json(res,await extractRequirementFile(body));
+    }
     if(req.method==='POST'&&url.pathname==='/api/projects'){
-      const body=await readBody(req);const title=String(body.title||'').trim();const brief=String(body.brief||'').trim();
+      const body=await readBody(req,29_000_000);const title=String(body.title||'').trim();const notes=String(body.brief||'').trim();
+      if(title.length<3||title.length>160||notes.length>100000)return error(res,'Tên dự án từ 3–160 ký tự và yêu cầu tối đa 100.000 ký tự.');
+      if(body.requirementFile!==undefined&&body.requirementFiles!==undefined)return error(res,'Chỉ dùng một danh sách tài liệu.',400);
+      const uploads=body.requirementFiles!==undefined?body.requirementFiles:body.requirementFile!==undefined?[{...body.requirementFile,previewTextSha256:body.previewTextSha256}]:null;
+      const files=uploads===null?[]:await extractRequirementFiles(uploads);
+      const brief=[notes,...files.map(file=>`=== FILE: ${file.filename} ===\n${file.text}`)].filter(Boolean).join('\n\n');
       if(title.length<3||title.length>160||brief.length<15||brief.length>100000)return error(res,'Tên dự án từ 3–160 ký tự và yêu cầu từ 15–100.000 ký tự.');
       const techStack=body.techStack?normalizeTechStack(body.techStack):null;
       const solutionProfile=body.solutionProfile?normalizeSolutionProfile(body.solutionProfile):null;
       const now=new Date().toISOString();const p={id:randomUUID(),title,brief,techStack,solutionProfile,erpFitGap:[],clarificationRecommendations:[],clarificationDecisions:[],sources:buildSources(brief),nextIds:{},changeLog:[],status:'NEW',version:1,createdAt:now,updatedAt:now,demo,analysis:null,review:null,prototype:null};
       ensureWorkflow(p);
+      if(files.length){
+        p.sources=notes?buildSources(notes):[];
+        const entries=files.map((file,index)=>{
+          const sourceId=`SRC-${String(p.sources.length+1).padStart(3,'0')}`;
+          p.sources.push({id:sourceId,type:'customer-brief',text:file.text,at:now,extractedTextSha256:file.textSha256,extractionWarnings:file.warnings});
+          return {file:{...uploads[index],category:'customer',actorId:'local-operator'},sourceId};
+        });
+        await workspaces.createWithDocuments(p,entries);
+        await workspaces.exportProject(p).catch(e=>console.error('[BA Studio] Workspace projection failed:',e.message));
+        return json(res,p,201);
+      }
       await save(p);return json(res,p,201);
     }
     if(segments[0]==='api'&&segments[1]==='projects'&&segments[2]){
@@ -689,12 +716,13 @@ async function handler(req,res){
         if(kind==='prototype'&&!p.prototype)return error(res,'Chưa tạo prototype.',409);
         if(['figma','figma-manifest'].includes(kind)&&!p.analysis.functionalRequirements.length)return error(res,'Cần tối thiểu một yêu cầu chức năng để lập Figma design pack.',409);
         if(kind==='prototype'&&url.searchParams.has('platform')&&!['web','mobile'].includes(url.searchParams.get('platform')))return error(res,'Invalid prototype platform',400);
-        const content=kind==='prd'?renderPRD(p):kind==='brd'?renderBRD(p):kind==='srs'?renderSRS(p):kind==='questions'?renderQuestionnaire(p):kind==='prototype'?renderStandalone(p,url.searchParams.has('platform')?{platform:url.searchParams.get('platform')}:{}):kind==='canonical'?JSON.stringify(buildCanonicalPackage(p),null,2):kind==='figma'?buildFigmaHandoff(p).instructions:kind==='figma-manifest'?JSON.stringify(buildFigmaHandoff(p).manifest,null,2):JSON.stringify({analysis:p.analysis,prototype:p.prototype,review:p.review},null,2);
+        const content=Object.hasOwn(DOCUMENT_RENDERERS,kind)?DOCUMENT_RENDERERS[kind](p):kind==='questions'?renderQuestionnaire(p):kind==='prototype'?renderStandalone(p,url.searchParams.has('platform')?{platform:url.searchParams.get('platform')}:{}):kind==='canonical'?JSON.stringify(buildCanonicalPackage(p),null,2):kind==='figma'?buildFigmaHandoff(p).instructions:kind==='figma-manifest'?JSON.stringify(buildFigmaHandoff(p).manifest,null,2):JSON.stringify({analysis:p.analysis,prototype:p.prototype,review:p.review},null,2);
         return sendDownload(res,docsFilename[kind],content,kind==='prototype'?'text/html; charset=utf-8':['json','canonical','figma-manifest'].includes(kind)?'application/json; charset=utf-8':'text/markdown; charset=utf-8');
       }
     }
     if(req.method==='GET' && !url.pathname.startsWith('/api/')){
       const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/workflow-progress.js':'workflow-progress.js','/quality-dashboard-ui.js':'quality-dashboard-ui.js','/clarification-ui.js':'clarification-ui.js','/clarification-batch-ui.js':'clarification-batch-ui.js','/figma-review-ui.js':'figma-review-ui.js','/design-direction-ui.js':'design-direction-ui.js','/design-brief-options.js':'design-brief-options.js','/design-brief-controls.js':'design-brief-controls.js'};
+      files['/requirement-file-ui.js']='requirement-file-ui.js';
       const file=files[url.pathname];if(!file)return error(res,'Not Found',404);
       const content=await fs.readFile(path.join(publicDir,file));res.writeHead(200,{'Content-Type':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.js')?'application/javascript; charset=utf-8':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'",'X-Content-Type-Options':'nosniff'});return res.end(content);
     }

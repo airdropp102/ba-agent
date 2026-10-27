@@ -2,6 +2,31 @@
 
 Cập nhật: 15/10/2026. Mô tả triển khai trong source hiện tại, bao gồm giao diện mới đang có trong working tree. Đây là tài liệu kiến trúc hiện hành; lịch sử thay đổi source được lưu trong Git. Số phiên bản trong schema, database migration và API metadata là hợp đồng kỹ thuật, không phải bộ tài liệu kiến trúc riêng.
 
+## Harness² offline engineering benchmark
+
+`npm run eval:harness2` và `npm run benchmark:harness2 -- --output <new-dir>`
+chạy công cụ nghiên cứu riêng trong `scripts/harness2/`. Python adapter dùng core
+Harness² ở revision cố định và gọi Node bridge với scripted solver/editor. Bridge
+dùng validator, normalization, evidence trust, stable IDs và canonical export hiện
+có; không gọi production provider, HTTP workflow, database hoặc Figma. Candidate
+chỉ sửa catalog guidance IDs, không sửa policy nền hoặc human gates. A/B/C và
+frozen transfer kiểm tra integration; score/cost thiếu là UNKNOWN, không suy ra
+semantic learning hoặc customer approval. Không có cơ chế tự học được bật trong
+HTTP server. Xem [Harness² benchmark](HARNESS2_BENCHMARK.md) cho phạm vi, commands,
+manifest, giới hạn cô lập và điều kiện model-backed evaluation còn lại.
+
+Ngày 2026-10-20 bổ sung `benchmark:harness2:live`: Python Harness² gọi Codex JSON
+solver/improver qua transport riêng trong `scripts/harness2/`. Corpus được admission
+trước transmission; reviewed mode tái sử dụng live corpus gate hiện có. Có một
+synthetic smoke mode riêng, luôn không đạt production acceptance. Run ledger reserve
+calls trước khi gửi và chặn vượt quota; không ghi prompt/text vào `ai_invocations`
+hoặc database ứng dụng. Codex dùng credential copy tạm, ephemeral session, không
+user config và tắt tools/web/MCP. Đây là pure-analysis research path, không gọi
+HTTP workflow và không tự vượt BA/Figma/customer gates. Train C, test A/B/C với
+memory đóng băng; model selection giới hạn procedural catalog IDs. Scorer riêng
+`scripts/harness2-review.mjs` yêu cầu hai BA + adjudication ràng buộc exact run hash,
+chỉ trả nghiên cứu/hypothesis metrics, không trả production/customer approval.
+
 ## 1. Mục tiêu và phạm vi
 
 BA Studio là ứng dụng phân tích nghiệp vụ chạy local: tiếp nhận brief, chuẩn hóa yêu cầu, phát hiện thông tin thiếu, hỗ trợ làm rõ, ghi nhận BA Review, sinh tài liệu và prototype. Thiết kế Figma được thực hiện theo hành động của người dùng trong tab Prototype.
@@ -76,7 +101,15 @@ Nhiều process cùng host có thể dùng chung `DATA_DIR` nhờ lease fencing.
 
 SQLite và filesystem không có một transaction chung. Sau lỗi I/O cần kiểm tra database và projections; không suy luận trạng thái từ một file tồn tại. `project:migrate` phục hồi exported workspace; không replay workflow đã hoàn tất.
 
+Initial requirement intake accepts up to 10 Word (`.doc`, `.docx`) or text PDF files in the new-project form: 5 MiB per file, 20 MiB total, and at most 100,000 combined brief characters including notes and file markers. Users can select several files at once, add more later, preview and remove each independently. `POST /api/requirements/preview` still parses one file's supplied bytes locally in a worker (100,000 text characters per file, 200 PDF pages, 15-second timeout per file, 256 MiB V8 heap limit, at most two concurrent parsers per HTTP process). The browser queues its previews sequentially and discards late results for removed drafts. Preview does not persist a project/file or invoke AI. PDF.js and word-extractor are pinned npm dependencies; PDF.js may install its optional native canvas dependency for Node compatibility. OCR, visual document fidelity and password unlocking are not provided. The preview exposes extracted text and warnings for human checking; it is not semantic validation or sign-off.
+
+On creation, the server validates the entire batch's count and decoded byte limits before re-extracting the original files and checking each preview text SHA-256. Typed notes and each file's text receive separate source IDs in selection order. All original files are staged under the new project's immutable UUID; `ProductionStore.save(..., {initialDocuments})` commits the project, all document registry entries and audit together before workspace projections are exported. A staging or transaction failure removes all successfully staged files; a crash before commit can leave unregistered orphans, which must never be treated as registered evidence. File-backed sources retain distinct document UUIDs, filename, original checksum, extracted-text checksum and warnings, including when filenames coincide. The legacy singular `requirementFile` payload and `initialDocument` store option remain compatible. The create-and-run action then uses the existing durable workflow; previews never trigger it.
+
 ## 5. Lưu trữ và mô hình dữ liệu
+
+BA document formatting uses editable, original Markdown templates under `templates/documents/` for BRD, SRS, URD (StRS view), use cases and user stories. `src/standard-documents.js` consumes one `ba.canonical.v1` snapshot; `src/docs.js` retains existing project adapters and quality/ERP appendices. No provider prompt, schema, quality score or workflow stage changes are introduced. Populated exports keep the current BA Review/requirements-refresh guards; blank template downloads contain no project data. See [document template mapping](DOCUMENT_TEMPLATES.md) for reference standards, tailoring and missing-information policy.
+
+Current workspace documents may be DRAFT projections before review; file existence is not export permission or sign-off. New archive snapshots include the added document types, while previously committed historical snapshots are read-only, including which files they contain. An interrupted snapshot write can leave an incomplete historical projection; the SQLite project-version record remains authoritative. Current workspace exports can be rebuilt independently.
 
 | Nhóm bảng | Nội dung |
 |---|---|

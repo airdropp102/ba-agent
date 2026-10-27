@@ -7,13 +7,15 @@ import {erpFitGapReport} from './erp-intelligence.js';
 import {createHash,randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {renderBRD,renderSRS,renderPRD,renderQuestionnaire,renderERPDiscovery,renderERPSolutionComparison} from './docs.js';
+import {renderQuestionnaire,renderERPDiscovery,renderERPSolutionComparison,DOCUMENT_RENDERERS} from './docs.js';
 import {renderStandalone} from './export.js';
 import {buildCanonicalPackage} from './ba-canonical.js';
+import {documentExtension} from './document-filename.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const folders=['00-admin','01-customer-input','02-requirements','03-prototypes','04-figma','05-workflow','06-reviews','07-results','08-sessions','09-archive'];
 const digest=b=>createHash('sha256').update(b).digest('hex');
+const documentFiles={prd:'PRD.md',brd:'BRD.md',srs:'SRS.md',urd:'URD.md','use-cases':'USE_CASES.md','user-stories':'USER_STORIES.md'};
 const err=(message,status=400)=>Object.assign(new Error(message),{status});
 export const requireProjectId=id=>{if(!uuid.test(id||''))throw err('Invalid project UUID');return id.toLowerCase()};
 export const projectDirectory=(dataDir,id)=>path.join(path.resolve(dataDir),'projects',requireProjectId(id));
@@ -67,6 +69,7 @@ export class ProjectWorkspaces{
   async exportProject(p){
     const root=await this.ensure(p.id);
     const put=async(sub,name,content)=>atomic(path.join(root,sub,name),content);
+    const documents=p.analysis?Object.entries(DOCUMENT_RENDERERS).map(([kind,render])=>[documentFiles[kind],render(p)]):[];
     const metadata={projectId:p.id,title:p.title,version:p.version,status:p.status,updatedAt:p.updatedAt,
       workflow:{runId:p.workflow?.runId||null,stage:p.workflow?.stage||'NOT_STARTED',state:p.workflow?.state||'NOT_STARTED',checkpoints:p.workflow?.checkpoints||[]},
       review:{approved:!!p.review?.approved,reviewedAt:p.review?.reviewedAt||null},clarifications:{requirementsRefreshPending:!!p.requirementsRefreshPending,proposals:(p.clarificationRecommendations||[]).length,decisions:(p.clarificationDecisions||[]).length,unresolved:(p.analysis?.clarificationQuestions||[]).filter(q=>q.status!=='resolved').length},sourceOfTruth:'shared SQLite / projects table',projection:true};
@@ -97,14 +100,12 @@ export class ProjectWorkspaces{
     await put('07-results','QUALITY_HISTORY.json',JSON.stringify({projectId:p.id,qualitySnapshots:this.store.qualityHistory(p.id)},null,2)+'\n');
     await put('07-results','AI_USAGE.json',JSON.stringify(this.store.aiMetrics(p.id),null,2)+'\n');
     if(p.analysis){
-      await put('02-requirements','PRD.md',renderPRD(p));
-      await put('02-requirements','BRD.md',renderBRD(p));
-      await put('02-requirements','SRS.md',renderSRS(p));
+      for(const [name,content] of documents)await put('02-requirements',name,content);
       await put('02-requirements','canonical.json',JSON.stringify(buildCanonicalPackage(p),null,2)+'\n');
       await put('02-requirements','clarification-questions.md',renderQuestionnaire(p));
       await put('02-requirements','clarification-recommendations.json',JSON.stringify({projectId:p.id,techStack:p.techStack||null,proposals:p.clarificationRecommendations||[],decisions:p.clarificationDecisions||[]},null,2)+'\n');
     }else{
-      for(const name of ['PRD.md','BRD.md','SRS.md','canonical.json','clarification-questions.md','clarification-recommendations.json'])await fs.rm(path.join(root,'02-requirements',name),{force:true});
+      for(const name of [...Object.values(documentFiles),'canonical.json','clarification-questions.md','clarification-recommendations.json'])await fs.rm(path.join(root,'02-requirements',name),{force:true});
     }
     if(p.prototype)await put('03-prototypes','prototype.html',renderStandalone(p));
     else await fs.rm(path.join(root,'03-prototypes','prototype.html'),{force:true});
@@ -115,8 +116,10 @@ export class ProjectWorkspaces{
     const historical=path.join(root,'09-archive',`v${String(p.version).padStart(6,'0')}`);
     await safeDirectory(historical,this.dir);
     const snapshot=path.join(historical,'state.json');
-    try{await fs.writeFile(snapshot,JSON.stringify(metadata,null,2)+'\n',{flag:'wx',mode:0o600})}catch(e){if(e.code!=='EEXIST')throw e}
-    if(p.analysis)for(const [name,content] of [['PRD.md',renderPRD(p)],['BRD.md',renderBRD(p)],['SRS.md',renderSRS(p)]]){
+    let createdSnapshot=false;
+    try{await fs.writeFile(snapshot,JSON.stringify(metadata,null,2)+'\n',{flag:'wx',mode:0o600});createdSnapshot=true}catch(e){if(e.code!=='EEXIST')throw e}
+    // Existing snapshots are read-only, including their file membership.
+    if(createdSnapshot)for(const [name,content] of documents){
       try{await fs.writeFile(path.join(historical,name),content,{flag:'wx',mode:0o600})}catch(e){if(e.code!=='EEXIST')throw e}
     }
     return {directory:root,projectId:p.id,version:p.version};
@@ -146,11 +149,13 @@ export class ProjectWorkspaces{
   }
   async migrateAll(){const results=[];for(const item of this.store.list())results.push(await this.migrateLegacy(item.id));return results}
   list(id){this.store.get(requireProjectId(id));return this.store.db.prepare('SELECT id,category,filename,sha256,size_bytes,created_at,actor_id FROM project_documents WHERE project_id=? ORDER BY created_at DESC').all(id)}
-  async addDocument(id,{category,filename,content,encoding,actorId='local-operator'}={}){
-    const root=await this.ensure(id);
+  async stageDocument(id,{category,filename,content,encoding,actorId='local-operator'}={},initial=false){
+    requireProjectId(id);
+    const root=initial?this.root(id):await this.ensure(id);
     if(!['customer','reference','approval'].includes(category))throw err('Invalid category: customer|reference|approval');
-    if(typeof filename!=='string'||! /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,119}\.(md|txt|json|csv|pdf|doc|docx|xls|xlsx|png|jpg|jpeg|webp)$/iu.test(filename)||filename.includes('..'))throw err('Unsafe filename or unsupported file type');
-    const binary=!/\.(md|txt|json|csv)$/i.test(filename);
+    const extension=documentExtension(filename,['md','txt','json','csv','pdf','doc','docx','xls','xlsx','png','jpg','jpeg','webp']);
+    if(!extension)throw err('Unsafe filename or unsupported file type');
+    const binary=!['md','txt','json','csv'].includes(extension);
     if(binary&&encoding!=='base64')throw err('Binary attachments require base64 encoding');
     if(encoding!==undefined&&encoding!=='base64')throw err('Unsupported encoding');
     if(typeof content!=='string'||!content.trim())throw err('Content required');
@@ -163,18 +168,40 @@ export class ProjectWorkspaces{
     const fileId=randomUUID(),sub=category==='customer'?'01-customer-input':category==='reference'?'02-requirements':'06-reviews';
     const base=category==='reference'?'references':'attachments';
     await safeDirectory(path.join(root,sub,base),this.dir);
-    const relativePath=path.posix.join(sub,base,fileId+'-'+filename);
+    const relativePath=path.posix.join(sub,base,fileId+'.'+extension);
     const absolute=path.join(root,...relativePath.split('/'));
     const sha256=digest(bytes),at=new Date().toISOString();
     // Write once using a random immutable basename; committed registry entry is the reference.
     await fs.writeFile(absolute,bytes,{flag:'wx',mode:0o600});
+    return {id:fileId,projectId:id,category,filename,sha256,sizeBytes:bytes.length,createdAt:at,actorId,relativePath,absolute};
+  }
+  async createWithDocument(p,file,sourceId){
+    return this.createWithDocuments(p,[{file,sourceId}]);
+  }
+  async createWithDocuments(p,entries){
+    if(this.store.getProjectStatement.get(p.id))throw err('Project already exists',409);
+    if(!Array.isArray(entries)||!entries.length||entries.length>10)throw err('Initial documents require 1–10 files');
+    if(new Set(entries.map(e=>e.sourceId)).size!==entries.length||entries.some(e=>!p.sources?.some(s=>s.id===e.sourceId)))throw err('Distinct initial document sources are required');
+    const documents=[];
+    try{
+      for(const entry of entries){
+        const doc=await this.stageDocument(p.id,entry.file,true);documents.push(doc);
+        const source=p.sources.find(s=>s.id===entry.sourceId);
+        Object.assign(source,{documentId:doc.id,filename:doc.filename,sha256:doc.sha256,sourceReference:`attachment:${doc.id}`});
+      }
+      this.store.save(p,{actorId:documents[0].actorId,initialDocuments:documents});
+    }catch(e){await Promise.all(documents.map(doc=>fs.rm(doc.absolute,{force:true}).catch(()=>{})));throw e}
+  }
+  async addDocument(id,options={}){
+    const doc=await this.stageDocument(id,options);
+    const {id:fileId,category,filename,relativePath,sha256,sizeBytes,createdAt:at,actorId,absolute}=doc;
     try{
       this.store.tx(()=>{
-        this.store.db.prepare('INSERT INTO project_documents(id,project_id,category,filename,relative_path,sha256,size_bytes,created_at,actor_id) VALUES(?,?,?,?,?,?,?,?,?)').run(fileId,id,category,filename,relativePath,sha256,bytes.length,at,actorId);
+        this.store.db.prepare('INSERT INTO project_documents(id,project_id,category,filename,relative_path,sha256,size_bytes,created_at,actor_id) VALUES(?,?,?,?,?,?,?,?,?)').run(fileId,id,category,filename,relativePath,sha256,sizeBytes,at,actorId);
         this.store.writeAudit(id,'PROJECT_DOCUMENT_ADDED',actorId,{fileId,filename,category,sha256});
       });
     }catch(e){await fs.rm(absolute,{force:true}).catch(()=>{});throw e}
-    return {id:fileId,projectId:id,category,filename,sha256,sizeBytes:bytes.length,createdAt:at};
+    return {id:fileId,projectId:id,category,filename,sha256,sizeBytes,createdAt:at};
   }
   async readDocument(id,documentId){
     this.store.get(requireProjectId(id));

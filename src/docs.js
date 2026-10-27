@@ -1,3 +1,5 @@
+import {buildCanonicalPackage} from './ba-canonical.js';
+import {renderStandardDocument} from './standard-documents.js';
 const esc = x => String(x ?? '').replace(/\|/g,'\\|').replace(/\r?\n/g,' ').trim();
 const bullet = (arr,empty='Chưa xác định') => arr?.length ? arr.map(x => `- ${x}`).join('\n') : `- ${empty}`;
 const table = (headers, rows) => [
@@ -22,24 +24,13 @@ export function renderPRD(p){
 `## 1. Product problem and objective\n${a.businessProblem||'Chưa xác định'}\n\n## 2. Business goals\n${bullet(a.businessGoals)}\n\n## 3. Users and stakeholders\n${table(['Vai trò','Nhu cầu'],a.stakeholders.map(x=>[x.role,x.need]))}\n\n## 4. Scope\n### In scope\n${bullet(a.scopeIn)}\n\n### Out of scope\n${bullet(a.scopeOut,'Chưa thống nhất')}\n\n## 5. Product capabilities (DRAFT)\n${table(['ID','Tính năng','Ưu tiên','Mức xác thực','Bằng chứng'],a.functionalRequirements.map(x=>[x.id,x.name,x.priority,label(x.certainty),x.sourceEvidence||'CẦN XÁC NHẬN']))}\n\n## 6. Success criteria / metrics\nChưa được xác định nếu không có bằng chứng rõ ràng trong yêu cầu khách hàng. Không tự suy diễn KPI.\n\n## 7. Constraints and non-functional needs\n${table(['ID','Nhóm','Mục tiêu đo','Mức xác thực'],a.nonFunctionalRequirements.map(x=>[x.id,x.category,x.measurableTarget,label(x.certainty)]))}\n\n## 8. Assumptions and risks\n${bullet(a.assumptions)}\n\n${bullet(a.risks)}\n\n## 9. Clarifications required\n${questions(a)}\n\n## 10. Approvals\n${p.review?.approved?'BA review recorded; customer sign-off NOT implied.':'No BA approval yet.'}\n` + proposalsAppendix(p) + erpAppendix(p) + qualityAppendix(p);
 }
 
-export function renderBRD(p) {
-  const a=p.analysis;
-  return mdHead(p,'BRD — Business Requirements Document') +
-`## 1. Tổng quan và bối cảnh\n${a.executiveSummary || 'Chưa xác định'}\n\n## 2. Vấn đề kinh doanh\n${a.businessProblem}\n\n## 3. Mục tiêu kinh doanh\n${bullet(a.businessGoals)}\n\n## 4. Stakeholder\n${table(['Vai trò','Nhu cầu'],a.stakeholders.map(x=>[x.role,x.need]))}\n\n## 5. Phạm vi\n### Trong phạm vi\n${bullet(a.scopeIn)}\n\n### Ngoài phạm vi (chỉ khi đã nêu rõ)\n${bullet(a.scopeOut,'Chưa được thống nhất')}\n\n## 6. Business Rules\n${table(['ID','Quy tắc','Mức xác thực','Bằng chứng'],a.businessRules.map(x=>[x.id,x.rule,label(x.certainty),x.sourceEvidence || 'Không có']))}\n\n## 7. Danh mục nhu cầu/chức năng\n${table(['ID','Tên','Vai trò','Ưu tiên','Mục tiêu','Mức xác thực'],a.functionalRequirements.map(x=>[x.id,x.name,x.actor,x.priority,x.relatedBusinessGoal || 'Chưa liên kết',label(x.certainty)]))}\n\n## 8. Giả định\n${bullet(a.assumptions,'Chưa ghi nhận')}\n\n## 9. Rủi ro\n${bullet(a.risks,'Chưa ghi nhận')}\n\n## 10. Open Questions\n${questions(a)}\n\n## 11. Ghi chú BA Review\n${p.review?.notes || 'Chưa có'}\n\n## 12. Trạng thái phê duyệt\n${p.review?.approved ? `Đã được BA đánh dấu rà soát vào ${p.review.reviewedAt}; không đồng nghĩa khách hàng ký duyệt.` : 'Chưa được BA rà soát.'}\n` + proposalsAppendix(p) + erpAppendix(p) + qualityAppendix(p);
-}
+export function renderBRD(p) {return renderStandardDocument('brd',buildCanonicalPackage(p))+proposalsAppendix(p)+erpAppendix(p)+qualityAppendix(p)}
+export function renderSRS(p) {return renderStandardDocument('srs',buildCanonicalPackage(p))+proposalsAppendix(p)+erpAppendix(p)+qualityAppendix(p)}
+export function renderURD(p) {return renderStandardDocument('urd',buildCanonicalPackage(p))+proposalsAppendix(p)+qualityAppendix(p)}
+export function renderUseCases(p) {return renderStandardDocument('use-cases',buildCanonicalPackage(p))+qualityAppendix(p)}
+export function renderUserStories(p) {return renderStandardDocument('user-stories',buildCanonicalPackage(p))+qualityAppendix(p)}
 
-export function renderSRS(p) {
-  const a=p.analysis;
-  const screens = p.prototype?.screens || [];
-  const frs = a.functionalRequirements.map(fr => {
-    const refs = screens.filter(x=>x.requirementIds.includes(fr.id)).map(x=>`${x.id} (${x.title})`);
-    return `### ${fr.id} — ${fr.name}\n- **Mô tả:** ${fr.description || 'TBD'}\n- **Tác nhân:** ${fr.actor || 'TBD'}\n- **Ưu tiên:** ${fr.priority}\n- **Mức xác thực:** ${label(fr.certainty)}\n- **Bằng chứng:** ${fr.sourceEvidence || 'Không có; cần phỏng vấn'}\n- **Mục tiêu liên kết:** ${fr.relatedBusinessGoal || 'Chưa liên kết'}\n- **Prototype:** ${refs.join(', ') || 'Chưa có mapping'}\n\n**Tiền điều kiện**\n${bullet(fr.preconditions,'TBD')}\n\n**Luồng chính (mục chưa được khách hàng xác nhận vẫn chỉ là đề xuất)**\n${bullet(fr.mainFlow,'TBD')}\n\n**Luồng ngoại lệ**\n${bullet(fr.alternateFlows,'TBD')}\n\n**Tiêu chí nghiệm thu đề xuất**\n${bullet(fr.acceptanceCriteria,'Chưa có — không thể nghiệm thu tự động')}\n`;
-  }).join('\n');
-  const rows = a.functionalRequirements.map(fr => [fr.id,fr.relatedBusinessGoal || 'TBD',label(fr.certainty),screens.filter(s=>s.requirementIds.includes(fr.id)).map(s=>s.id).join(', ') || '—']);
-  return mdHead(p,'SRS — Software Requirements Specification') +
-`## 1. Mục tiêu và ranh giới hệ thống\n${a.executiveSummary}\n\n## 2. Đối tượng sử dụng\n${table(['Vai trò','Nhu cầu'],a.stakeholders.map(x=>[x.role,x.need]))}\n\n## 3. Yêu cầu chức năng\n${frs || 'Chưa đủ yêu cầu chức năng được xác định.'}\n\n## 4. Yêu cầu phi chức năng\n${table(['ID','Nhóm','Mô tả','Chỉ tiêu đo','Mức xác thực'],a.nonFunctionalRequirements.map(x=>[x.id,x.category,x.description,x.measurableTarget,label(x.certainty)]))}\n\n## 5. Quy tắc nghiệp vụ\n${table(['ID','Quy tắc','Nguồn'],a.businessRules.map(x=>[x.id,x.rule,x.sourceEvidence || 'Chưa có']))}\n\n## 6. Ma trận truy vết BRD → SRS → Prototype\n${table(['FR ID','Business goal','Trạng thái nguồn','Màn hình'],rows)}\n\n## 7. Giao diện tích hợp, dữ liệu, bảo mật\nChưa có đặc tả kỹ thuật được xác nhận. Cần làm rõ tích hợp, dữ liệu, phân quyền chi tiết, quyền riêng tư và NFR trước triển khai.\n\n## 8. Vấn đề mở\n${questions(a)}\n\n## 9. Ghi chú review\n${p.review?.notes || 'Chưa có'}\n\n## 10. Điều kiện bàn giao\nTài liệu mang tính draft. Cần phê duyệt nghiệp vụ và hoàn thành các điểm mở trước khi baseline SRS.\n` + proposalsAppendix(p) + erpAppendix(p) + qualityAppendix(p);
-}
-
+export const DOCUMENT_RENDERERS=Object.freeze({prd:renderPRD,brd:renderBRD,srs:renderSRS,urd:renderURD,'use-cases':renderUseCases,'user-stories':renderUserStories});
 
 /** Deterministic BABOK-inspired verification appendix shared by BRD & SRS. */
 function qualityAppendix(p) {

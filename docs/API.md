@@ -43,9 +43,11 @@ Plaintext tối đa 300 KB, binary base64 tối đa 5 MiB theo validation; UI T�
 | POST | `/answers/batch` | Batch custom/option decisions đã validate |
 | POST | `/review` | `{approved:true, notes}`; BA Review, không customer signoff |
 | POST | `/generate` | API manual tạo prototype; giữ tương thích các guards |
-| GET | `/export/:kind` | PRD/BRD/SRS/prototype/JSON/canonical/questions/Figma artifacts theo allowlist |
+| GET | `/export/:kind` | PRD/BRD/SRS/URD/Use case/User story/prototype/JSON/canonical/questions/Figma artifacts theo allowlist |
 
-Ví dụ export thông dụng: `prd.md`, `brd.md`, `srs.md`, `prototype.html`, `canonical.json`, `questions.md`. Except questions/canonical, export route yêu cầu BA Review và không pending refresh. Manual endpoints được giữ để tương thích; không suy ra chúng thực hiện toàn bộ orchestrated quality gate.
+Ví dụ export thông dụng: `prd.md`, `brd.md`, `srs.md`, `urd.md`, `use-cases.md`, `user-stories.md`, `prototype.html`, `canonical.json`, `questions.md`. Except questions/canonical, export route yêu cầu BA Review và không pending refresh. Manual endpoints được giữ để tương thích; không suy ra chúng thực hiện toàn bộ orchestrated quality gate.
+
+`GET /api/document-templates/:kind.md` tải template Markdown trống cho `brd`, `srs`, `urd`, `use-cases`, `user-stories`; không cần project/BA Review vì không chứa dữ liệu khách hàng. Vẫn áp dụng bảo vệ truy cập chung của dịch vụ. Kind không hỗ trợ trả 404. Tài liệu đã điền dùng project export ở trên; xem [mapping template](DOCUMENT_TEMPLATES.md).
 
 ## Clarification và ERP
 

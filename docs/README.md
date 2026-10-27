@@ -13,6 +13,7 @@ Cập nhật theo source ngày 15/10/2026. Bắt đầu từ kiến trúc, sau �
 ## Hướng dẫn chuyên sâu
 
 - [Project workspaces](PROJECT_WORKSPACES.md)
+- [Document templates and reference mapping](DOCUMENT_TEMPLATES.md)
 - [Clarification](CLARIFICATION.md)
 - [ERP analysis](ERP.md)
 - [Figma integration](figma-handoff.md)
