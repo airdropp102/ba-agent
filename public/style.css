@@ -1,4 +1,5 @@
 /* BA Studio: light, readable workspace. See design-system/ba-studio/MASTER.md. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 :root{
   --navy:#242945;
   --navy2:#343c60;
@@ -544,6 +545,14 @@ input[type=file]::file-selector-button{
   width:100%;
   margin-bottom:22px;
   background:#fbfcfe}
+.brief-file-picker{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px;border:1px dashed var(--border);border-radius:12px;background:#fbfcfe;margin-bottom:12px}
+.brief-file-picker strong{font-size:14px}.brief-file-picker p{font-size:12px;line-height:1.6;color:var(--muted);margin:6px 0 0}.brief-file-picker button{flex:none;min-height:44px}
+.brief-file-selection{display:flex;align-items:center;justify-content:space-between;gap:12px}.brief-file-selection strong{min-width:0;overflow-wrap:anywhere;font-size:13px}.brief-file-selection button{flex:none;min-height:44px}
+.brief-file-message{font-size:12px;line-height:1.6;margin:0 0 12px;color:var(--muted);overflow-wrap:anywhere}.brief-file-message:empty{display:none}.brief-file-error{color:#b42318}
+.brief-file-preview{margin:12px 0 22px}.brief-file-preview summary{cursor:pointer;font-size:13px;min-height:44px;display:list-item;padding:12px 0}.brief-file-preview textarea{margin-bottom:8px!important;font-size:13px}.brief-file-preview small{display:block;color:var(--muted);line-height:1.6}
+.brief-file-selection[hidden],.brief-file-preview[hidden]{display:none}
+.brief-file-entry{border:1px solid var(--border);border-radius:12px;padding:14px;margin:0 0 12px}.brief-file-entry .brief-file-preview{margin:0}.brief-file-entry .brief-file-message{margin-bottom:8px}.brief-file-entry .brief-file-selection{margin-bottom:8px}.brief-file-entry .brief-file-preview textarea{width:100%}.brief-file-list{min-width:0}
+@media(max-width:600px){.brief-file-picker{align-items:stretch;flex-direction:column;padding:14px}.brief-file-picker button{width:100%}}
 .label-row{
   display:flex;
   align-items:center;

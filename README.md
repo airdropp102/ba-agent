@@ -1,6 +1,6 @@
 # BA Studio
 
-Không gian phân tích nghiệp vụ từ brief đến tài liệu và prototype: source-grounded requirements, câu hỏi làm rõ, BA Review, PRD/BRD/SRS, HTML wireframe và thiết kế Figma có bước duyệt.
+Không gian phân tích nghiệp vụ từ brief đến tài liệu và prototype: source-grounded requirements, câu hỏi làm rõ, BA Review, PRD/BRD/SRS/URD, Use case, User story, HTML wireframe và thiết kế Figma có bước duyệt.
 
 ## Chạy local
 
@@ -21,7 +21,7 @@ Mở `http://127.0.0.1:3478`. `setup` giữ `.env` hiện có; cấu hình mẫu
 2. Theo dõi workflow trong Tổng quan; làm rõ câu hỏi ở Phân tích.
 3. Rà soát và ghi BA Review trước khi tạo/đọc các đầu ra được bảo vệ.
 4. Với dự án ERP, xác nhận nền tảng mục tiêu trong Tổng quan, tạo và BA review thiết kế giải pháp trước DELIVERABLES. Dự án thông thường bỏ qua bước này.
-5. Đọc/tải PRD, BRD, SRS và HTML prototype.
+5. Đọc/tải PRD, BRD, SRS, URD, Use case, User story và HTML prototype. Các tab tài liệu có nút tải template Markdown trống; tài liệu đã điền yêu cầu BA Review hiện hành.
 6. Trong Prototype, khởi chạy socket, nhập URL Figma/channel và xác nhận file; chờ bản vẽ, duyệt hoặc yêu cầu chỉnh sửa.
 7. Bản design đã duyệt vẫn có thể yêu cầu sửa; bản mới phải duyệt lại.
 8. Tab Tài liệu lưu các file bổ sung riêng theo dự án.
@@ -41,6 +41,7 @@ Workflow BA mới kết thúc ở `DELIVERABLES / COMPLETED`. Figma là tác v�
 | [Thiết lập](SETUP.md) | Quick start và lệnh vận hành thường dùng |
 | [Figma](docs/figma-handoff.md) | Relay, plugin, review/revision, preview recovery |
 | [Project workspaces](docs/PROJECT_WORKSPACES.md) | UUID isolation, folders, attachments và migration |
+| [Template tài liệu](docs/DOCUMENT_TEMPLATES.md) | BRD/SRS/URD theo tham chiếu 29148/BABOK; Use case, INVEST và Gherkin |
 | [Clarification](docs/CLARIFICATION.md) | Draft options, authority, batch và attachments |
 | [ERP](docs/ERP.md) | Domain profile, candidates, Fit–Gap, discovery |
 | [Session continuity](docs/SESSION_CONTINUITY.md) | Engineering task/session/checkpoint và handoff |

@@ -1,4 +1,5 @@
 import {renderDesignDirection} from './design-direction-ui.js';
+import {bindRequirementFileInput} from './requirement-file-ui.js';
 import {completeDrafts,generateQuestionGroups,selectRecommendedDrafts,uploadDraftAttachments} from './clarification-batch-ui.js';
 import {candidateAllowed,filterQuestions,renderQuestionForm,referencedRequirements,processAreaHelp} from './clarification-ui.js';
 import {patchQualityDashboard} from './quality-dashboard-ui.js';
@@ -9,6 +10,7 @@ const state={project:null,tab:'workflow',busy:false,docCache:{},workflowPlatform
 const stages=['NEW','ANALYZED','REVIEWED','GENERATED'];
 const wfLabels={BRAINSTORM:'Brainstorming',ELICITATION:'Elicitation',GAP_ANALYSIS:'Gap Analysis',CLARIFICATION:'Clarification',BA_REVIEW:'BA Review',ERP_SOLUTION_DESIGN:'Thiết kế giải pháp ERP',DELIVERABLES:'BRD / SRS / Prototype'};
 const statusNames={NEW:'Mới tạo',ANALYZED:'Đã phân tích',REVIEWED:'BA đã rà soát',GENERATED:'Đã sinh tài liệu & prototype'};
+const documentLabels={prd:'Product Requirements Document',brd:'Business Requirements Document',srs:'Software Requirements Specification',urd:'User / Stakeholder Requirements Document','use-cases':'Use case specification','user-stories':'User stories'};
 // Cache only the selected project/version; archived data is displayed explicitly as historical.
 let referenceHistoryCache=null;
 let qualityDashboardCache=null;
@@ -77,7 +79,7 @@ async function render(){
   document.querySelectorAll('.tab').forEach(b=>{const active=b.dataset.tab===state.tab;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');if(active)$('location-label').textContent=b.textContent.trim()});
   $('workflow-content').hidden=state.tab!=='workflow';
   $('analysis-content').hidden=state.tab!=='analysis';
-  $('document-content').hidden=!['prd','brd','srs'].includes(state.tab);
+  $('document-content').hidden=!Object.hasOwn(documentLabels,state.tab);
   $('prototype-content').hidden=state.tab!=='prototype';
   $('files-content').hidden=state.tab!=='files';
   $('reanalyze-btn').disabled=!p.analysis;
@@ -503,14 +505,14 @@ if(p.review?.approved)actions.append(button(p.prototype?'↻ Sinh lại prototyp
 review.append(actions);right.append(review);
 const clarify=panel('Ghi chú BA chưa xác minh','Chỉ lưu như giả định BA. Phản hồi khách hàng cần sử dụng form “Tự nhập câu trả lời từ khách hàng” trong danh sách câu hỏi.');const extra=elt('textarea');extra.placeholder='VD: BA đề xuất làm rõ độ dài số seri và quy tắc trùng phiếu...';extra.id='clarify-text';extra.rows=3;extra.style.width='100%';extra.style.marginBottom='12px';extra.style.padding='12px';clarify.append(extra);clarify.append(button('Cập nhật brief & phân tích lại',()=>work(async()=>{if(extra.value.trim().length<5)throw new Error('Vui lòng nhập nội dung bổ sung.');toast('Đang phân tích lại với thông tin bổ sung...');const next=await api(`/api/projects/${p.id}/clarify`,'POST',{clarifications:extra.value});await selectProject(next);toast('Đã cập nhật brief và phiên bản phân tích.')}),'quiet'));right.append(clarify);
 add(cols,left,right);root.append(cols)}
-async function renderDoc(type){const root=$('document-content'),p=state.project;root.replaceChildren();if(!p.review?.approved){root.append(add(elt('div',null,'empty-block'),elt('h3','Cần BA Review'),elt('p','Duyệt bản phân tích để xem và tải tài liệu.')));return}const label=type==='prd'?'Product Requirements Document':type==='brd'?'Business Requirements Document':'Software Requirements Specification';const container=panel(type.toUpperCase()+' · '+label,'Tài liệu draft có thể tải xuống và chỉnh sửa bằng Markdown.');const row=elt('div',null,'actions');row.append(button('↓ Tải '+type.toUpperCase()+'.md',()=>work(()=>download(`/api/projects/${p.id}/export/${type}.md`)),'primary'));container.append(row);
+async function renderDoc(type){const root=$('document-content'),p=state.project;root.replaceChildren();const label=documentLabels[type]||type;const container=panel(type.toUpperCase()+' · '+label,'Tài liệu DRAFT từ bản yêu cầu hiện tại; có thể tải và chỉnh sửa bằng Markdown.');root.append(container);const row=elt('div',null,'actions');if(type!=='prd')row.append(button('↓ Template trống',()=>work(()=>download(`/api/document-templates/${type}.md`,type.toUpperCase()+'.template.md')),'quiet'));container.append(row);if(!p.review?.approved||p.requirementsRefreshPending){container.append(add(elt('div',null,'empty-block'),elt('h3','Cần BA Review hiện hành'),elt('p','Hoàn tất phân tích lại và BA Review để xem, tải tài liệu đã điền. Template trống có thể tải ngay.')));return}row.prepend(button('↓ Tải '+type.toUpperCase()+'.md',()=>work(()=>download(`/api/projects/${p.id}/export/${type}.md`)),'primary'));
 if(p.analysis?.functionalRequirements?.length){
   const figmaRow=elt('div',null,'actions');
   figmaRow.append(button('↓ Figma Design Brief',()=>work(()=>download(`/api/projects/${p.id}/export/figma.md`)),'secondary'));
   figmaRow.append(button('↓ Figma Manifest',()=>work(()=>download(`/api/projects/${p.id}/export/figma-manifest.json`)),'quiet'));
   container.append(elt('p','Vẽ Figma từ BRD/SRS bằng UI UX Pro Max + TalkToFigma MCP. Có thể chuẩn bị ngay sau BA Review, không bắt buộc sinh HTML prototype.','subtle'),figmaRow);
 }
-const pre=elt('pre','Đang tải tài liệu...','preview');container.append(pre);root.append(container);try{const resp=await authenticatedFetch(`/api/projects/${p.id}/export/${type}.md`);pre.textContent=resp.ok?await resp.text():'Chưa đủ điều kiện export.'}catch(e){pre.textContent=e.message}}
+const pre=elt('pre','Đang tải tài liệu...','preview');container.append(pre);try{const resp=await authenticatedFetch(`/api/projects/${p.id}/export/${type}.md`);pre.textContent=resp.ok?await resp.text():'Chưa đủ điều kiện export.'}catch(e){pre.textContent=e.message}}
 async function readFigmaSetup(){const [relay,design]=await Promise.all([api('/api/figma/relay'),api(`/api/projects/${state.project.id}/figma-design`)]);state.figmaRelay=relay;state.figmaDesign=design.figmaDesign;state.figmaJob=design.job;return design}
 function pollFigmaDesign(projectId){const key=state.figmaDesign?.runId;if(!key||state.figmaPollKey===key)return;state.figmaPollKey=key;(async()=>{while(state.project?.id===projectId&&state.figmaDesign?.runId===key&&['QUEUED','DESIGNING'].includes(state.figmaDesign?.state)){await new Promise(resolve=>setTimeout(resolve,1400));try{const result=await readFigmaSetup();if(state.project?.id!==projectId)return;const fresh=await api(`/api/projects/${projectId}`);state.project=fresh;if(state.tab==='prototype')renderPrototype();if(['WAITING_FOR_REVIEW','WAITING_SAMPLE_REVIEW','FAILED'].includes(result.figmaDesign?.state)){await render();if(['WAITING_FOR_REVIEW','WAITING_SAMPLE_REVIEW'].includes(result.figmaDesign.state))toast('Đã vẽ xong. Hãy duyệt từng màn hình Figma.');else toast(figmaFailureMessage(result.figmaDesign.errorCode),true);break}}catch(e){toast(e.message,true);break}}state.figmaPollKey=null})()}
 async function startFigmaRelay(){await api('/api/figma/relay/start','POST',{});state.figmaRelay=await api('/api/figma/relay');await render()}
@@ -559,8 +561,10 @@ const screens=p.prototype.screens;let active=screens[0].id;function show(id){con
 async function analyze(){const p=state.project;toast('Đang phân tích yêu cầu...');const next=await api(`/api/projects/${p.id}/analyze`,'POST',{});await selectProject(next);toast('Đã tạo bản phân tích và Open Questions.')}
 $('new-project-btn').onclick=resetWelcome;
 $('sample-btn').onclick=()=>{$('title-input').value='Cổng tiếp nhận và xử lý bảo hành';$('brief-input').value="Khách hàng muốn triển khai cổng bảo hành máy lọc nước. Khách hàng có thể đăng ký bảo hành bằng số seri và số điện thoại. Nhân viên trạm bảo hành xem danh sách yêu cầu, cập nhật trạng thái 'Tiếp nhận', 'Đang xử lý', 'Hoàn thành'. Quản trị viên xem báo cáo số phiếu theo trạng thái. Hệ thống phải phân quyền theo vai trò khách hàng, nhân viên trạm và quản trị viên.";toast('Đã nạp brief mẫu.')};
-$('brief-file').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;if(f.size>300000)return toast('File vượt 300 KB',true);$('brief-input').value=await f.text();if(!$('title-input').value)$('title-input').value=f.name.replace(/\.[^.]+$/,'')};
-$('create-form').onsubmit=e=>{e.preventDefault();work(async()=>{const title=$('title-input').value,brief=$('brief-input').value;const p=await api('/api/projects','POST',{title,brief});await selectProject(p,'workflow');await progressWorkflow()})};
+const requirementDraft=bindRequirementFileInput({preview:file=>api('/api/requirements/preview','POST',file),isBusy:()=>state.busy});
+$('new-project-btn').addEventListener('click',()=>requirementDraft.clear());
+$('sample-btn').addEventListener('click',()=>requirementDraft.clear());
+$('create-form').onsubmit=e=>{e.preventDefault();work(async()=>{const title=$('title-input').value,payload=requirementDraft.payload($('brief-input').value);const p=await api('/api/projects','POST',{title,...payload});requirementDraft.clear();$('create-form').reset();await selectProject(p,'workflow');await progressWorkflow()})};
 $('reanalyze-btn').onclick=()=>work(async()=>{if(!confirm('Phân tích lại sẽ xóa BA Review và prototype của phiên bản hiện tại. Tiếp tục?'))return;await analyze()});
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 api('/api/status').then(s=>{$('mode-indicator').textContent=s.demo?'● DEMO MODE — No API key':'● LIVE AI / '+s.provider+' — '+s.model}).catch(e=>toast(e.message,true));
@@ -572,4 +576,3 @@ $('page-title').tabIndex=-1;
 $('project-search').addEventListener('input',filterProjectList);
 $('nav-toggle').onclick=()=>{const open=$('workspace-navigation').classList.toggle('is-open');$('nav-toggle').setAttribute('aria-expanded',String(open));$('nav-toggle').setAttribute('aria-label',open?'Đóng danh sách dự án':'Mở danh sách dự án')};
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('workspace-navigation').classList.contains('is-open')){closeNavigation();$('nav-toggle').focus()}});
-document.querySelector('.upload').addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();$('brief-file').click()}});

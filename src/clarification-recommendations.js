@@ -72,6 +72,7 @@ const field=(raw,key,max)=>{
 };
 const normalizedOption=(raw,id,techs,mode,trustFeasibility)=>{
  if(!raw||typeof raw!=='object')throw bad('Invalid proposal option',422);
+ if(mode==='business'&&raw.stackReferences!==undefined&&(!Array.isArray(raw.stackReferences)||raw.stackReferences.length))throw bad('Business recommendations must have empty technology references',422);
  let ref=[];
  if(mode!=='business'){
   // Reject hallucinated stack references; a model may mention alternatives in prose,
@@ -81,7 +82,7 @@ const normalizedOption=(raw,id,techs,mode,trustFeasibility)=>{
   const given=Array.isArray(raw.stackReferences)?raw.stackReferences.filter(v=>typeof v==='string'):[];
   ref=[...new Set(given.map(r=>canon.get(r.toLowerCase())))];
   if(!ref.length||ref.some(r=>!r))throw bad('Recommendation references unknown project technology',422);
- } // business mode: stackReferences are dropped, not trusted
+ } // business mode: only empty references are accepted
  const feasibility=mode!=='business'&&trustFeasibility&&['compatible','requires-change','unknown'].includes(raw.feasibility)?raw.feasibility:'unknown';
  return {id,title:field(raw,'title',160),answer:field(raw,'answer',1600),benefits:field(raw,'benefits',1000),tradeoffs:field(raw,'tradeoffs',1000),implementation:field(raw,'implementation',1000),stackReferences:ref,feasibility};
 };

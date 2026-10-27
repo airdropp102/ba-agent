@@ -52,11 +52,14 @@ INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,datetime('n
     const createdAt=new Date().toISOString();const serialized=JSON.stringify(details);const eventHash=sha(JSON.stringify({projectId,eventType,actorId,serialized,prev,createdAt}));
     this.db.prepare('INSERT INTO audit_events(project_id,event_type,actor_id,details,prev_hash,event_hash,created_at) VALUES(?,?,?,?,?,?,?)').run(projectId,eventType,actorId,serialized,prev,eventHash,createdAt);
   }
-  save(p,{actorId='system',eventType='PROJECT_COMMITTED',details={},consumeChallenge=null,qualityReport=null}={}){
+  save(p,{actorId='system',eventType='PROJECT_COMMITTED',details={},consumeChallenge=null,qualityReport=null,initialDocument=null,initialDocuments=[]}={}){
+    if(initialDocument&&initialDocuments.length)throw err('Use one initial document payload',400);
+    const documents=initialDocument?[initialDocument]:initialDocuments;
     const expected=p._dbRevision;
     const encoded=JSON.stringify(p);
     const revision=this.tx(()=>{
       const old=this.getProjectStatement.get(p.id);
+      if(documents.length&&(old||documents.some(d=>d.projectId!==p.id)))throw err('Initial document requires a new matching project',409);
       const lease=this.db.prepare('SELECT * FROM project_leases WHERE project_id=? AND expires_at>?').get(p.id,Date.now());
       if(p._leaseToken && (!lease || lease.token!==p._leaseToken))throw err('Expired or stolen executor lease (fenced writer)',409);
       if(lease && lease.token!==p._leaseToken)throw err('Project has an active executor lease',409);
@@ -82,6 +85,10 @@ INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,datetime('n
             p.id,p.version,p.workflow?.runId||null,qualityReport.inputDigest,qualityReport.score,qualityReport.decision,
             JSON.stringify({rates:qualityReport.rates,counts:qualityReport.counts,findings:qualityReport.findings,policy:qualityReport.policy}),new Date().toISOString());
         }
+      }
+      for(const d of documents){
+        this.db.prepare('INSERT INTO project_documents(id,project_id,category,filename,relative_path,sha256,size_bytes,created_at,actor_id) VALUES(?,?,?,?,?,?,?,?,?)').run(d.id,p.id,d.category,d.filename,d.relativePath,d.sha256,d.sizeBytes,d.createdAt,d.actorId);
+        this.writeAudit(p.id,'PROJECT_DOCUMENT_ADDED',d.actorId,{fileId:d.id,filename:d.filename,category:d.category,sha256:d.sha256});
       }
       this.writeAudit(p.id,eventType,actorId,{version:p.version,revision:(old?.revision||0)+1,...details});
       return (old?.revision||0)+1;

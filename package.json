@@ -51,6 +51,8 @@
     "node": ">=22.13.0"
   },
   "dependencies": {
-    "saxes": "6.0.0"
+    "pdfjs-dist": "6.4.299",
+    "saxes": "6.0.0",
+    "word-extractor": "1.0.4"
   }
 }
